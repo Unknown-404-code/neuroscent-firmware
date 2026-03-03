@@ -20,6 +20,9 @@ public:
   // Parse json and prepare sequence if valid
   static bool parseAndPrepare(const String &jsonStr);
 
+  // Expose progress for the UI
+  static uint8_t getCurrentStepProgress();
+
 private:
   static int formulaId;
   static String formulaName;

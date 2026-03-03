@@ -1,5 +1,6 @@
 #include "UIManager.h"
 #include "DisplayManager.h"
+#include "FormulaManager.h"
 #include "PumpManager.h"
 #include "StorageManager.h"
 
@@ -726,7 +727,10 @@ void UIManager::renderFormulaRunning() {
 
   char buf[32];
   sprintf(buf, "Running Pump %d", activeFormulaPumpIndex + 1);
-  DisplayManager::drawCenteredText(buf, 30);
+  DisplayManager::drawCenteredText(buf, 20);
+
+  uint8_t prog = FormulaManager::getCurrentStepProgress();
+  DisplayManager::drawProgressBar(14, 35, 100, 10, prog);
 
   DisplayManager::display();
 }

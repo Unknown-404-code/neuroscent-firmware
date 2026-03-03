@@ -144,3 +144,18 @@ void FormulaManager::finishFormula() {
   PumpManager::stopAll();
   UIManager::updateFormulaProgress(0, true);
 }
+
+uint8_t FormulaManager::getCurrentStepProgress() {
+  if (!isExecuting || numSteps == 0)
+    return 0;
+
+  unsigned long elapsed = millis() - stepStartTime;
+  unsigned long duration = steps[currentStep].requiredMs;
+
+  if (duration == 0)
+    return 100;
+  if (elapsed >= duration)
+    return 100;
+
+  return (elapsed * 100) / duration;
+}
