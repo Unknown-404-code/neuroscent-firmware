@@ -632,7 +632,7 @@ void UIManager::renderViewCalibMenu() {
 
     char buf[32];
     float val = StorageManager::getCalibration(itemIndex);
-    sprintf(buf, "P%d: %.4f ml/ms", itemIndex + 1, val);
+    sprintf(buf, "P%d: %.2f ml/s", itemIndex + 1, val * 1000.0f);
     DisplayManager::getDisplay().print(buf);
   }
   DisplayManager::display();
