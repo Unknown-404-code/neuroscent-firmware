@@ -5,6 +5,7 @@ Preferences StorageManager::prefsConfig;
 
 float StorageManager::calibrations[NUM_PUMPS];
 float StorageManager::remaining_ml[NUM_PUMPS];
+uint8_t StorageManager::pwm_resolution = DEFAULT_PWM_RESOLUTION;
 
 String StorageManager::getPumpKey(uint8_t pumpIndex) {
   return String("P") + String(pumpIndex);
@@ -30,6 +31,12 @@ void StorageManager::init() {
     remaining_ml[i] =
         prefsConfig.getFloat(key.c_str(), DEFAULT_CONTAINER_CAPACITY_ML);
   }
+
+  // Load PWM settings
+  if (!prefsConfig.isKey("pwm_res")) {
+    prefsConfig.putUChar("pwm_res", DEFAULT_PWM_RESOLUTION);
+  }
+  pwm_resolution = prefsConfig.getUChar("pwm_res", DEFAULT_PWM_RESOLUTION);
 }
 
 // ==========================================
@@ -84,4 +91,15 @@ void StorageManager::dispenseFromContainer(uint8_t pumpIndex,
 
 void StorageManager::resetContainer(uint8_t pumpIndex) {
   setRemainingMl(pumpIndex, DEFAULT_CONTAINER_CAPACITY_ML);
+}
+
+// ==========================================
+// PWM SETTINGS
+// ==========================================
+
+uint8_t StorageManager::getPwmResolution() { return pwm_resolution; }
+
+void StorageManager::setPwmResolution(uint8_t pwm_res) {
+  pwm_resolution = pwm_res;
+  prefsConfig.putUChar("pwm_res", pwm_res);
 }

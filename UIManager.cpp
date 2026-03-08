@@ -17,6 +17,8 @@ uint8_t UIManager::selectedPump = 0;
 unsigned long UIManager::calibrationStartTime = 0;
 uint8_t UIManager::confirmTargetPump = 0;
 
+uint8_t UIManager::tempPwmResolution = 0;
+
 uint8_t UIManager::testContainerMl = 10;
 uint8_t UIManager::testPercent = 5;
 unsigned long UIManager::testStartTime = 0;
@@ -31,9 +33,9 @@ bool UIManager::formulaDone = false;
 // --------------------------------------------------------
 // Menu Constants
 // --------------------------------------------------------
-const char *MAIN_MENU_ITEMS[] = {"Purging", "Calibration", "View Calibs",
-                                 "Accords List", "Test"};
-const uint8_t MAIN_MENU_SIZE = 5;
+const char *MAIN_MENU_ITEMS[] = {"Purging",      "Calibration", "View Calibs",
+                                 "Accords List", "Test",        "PWM"};
+const uint8_t MAIN_MENU_SIZE = 6;
 
 const char *PUMPS_STR[] = {"Pump 1", "Pump 2", "Pump 3", "Pump 4",
                            "Pump 5", "Pump 6", "Pump 7", "Pump 8"};
@@ -81,6 +83,12 @@ void UIManager::update(ButtonEvent event) {
     break;
   case UIState::ACCORDS_CONFIRM:
     handleAccordsConfirm(event);
+    break;
+  case UIState::PWM_MENU:
+    handlePwmMenu(event);
+    break;
+  case UIState::PWM_CONFIRM:
+    handlePwmConfirm(event);
     break;
   case UIState::TEST_SELECT_PUMP:
     handleTestSelectPump(event);
@@ -187,6 +195,10 @@ void UIManager::handleMainMenu(ButtonEvent event) {
     case 4:
       changeState(UIState::TEST_SELECT_PUMP);
       break;
+    case 5:
+      tempPwmResolution = StorageManager::getPwmResolution();
+      changeState(UIState::PWM_MENU);
+      break;
     }
   }
 }
@@ -288,6 +300,36 @@ void UIManager::handleAccordsConfirm(ButtonEvent event) {
     changeState(UIState::ACCORDS_MENU);
   } else if (event == ButtonEvent::BACK) {
     changeState(UIState::ACCORDS_MENU);
+  }
+}
+
+void UIManager::handlePwmMenu(ButtonEvent event) {
+  if (event == ButtonEvent::UP) {
+    if (tempPwmResolution < 255)
+      tempPwmResolution++;
+  } else if (event == ButtonEvent::DOWN) {
+    if (tempPwmResolution > 0)
+      tempPwmResolution--;
+  } else if (event == ButtonEvent::SELECT) {
+    menuSelectedIndex = 0; // default to Confirm
+    changeState(UIState::PWM_CONFIRM);
+  } else if (event == ButtonEvent::BACK) {
+    changeState(UIState::MAIN_MENU);
+  }
+}
+
+void UIManager::handlePwmConfirm(ButtonEvent event) {
+  if (event == ButtonEvent::UP || event == ButtonEvent::DOWN) {
+    menuSelectedIndex = (menuSelectedIndex == 0) ? 1 : 0;
+  } else if (event == ButtonEvent::SELECT) {
+    if (menuSelectedIndex == 0) { // Confirm
+      StorageManager::setPwmResolution(tempPwmResolution);
+      changeState(UIState::MAIN_MENU);
+    } else { // Cancel
+      changeState(UIState::PWM_MENU);
+    }
+  } else if (event == ButtonEvent::BACK) { // Implied Cancel
+    changeState(UIState::PWM_MENU);
   }
 }
 
@@ -487,6 +529,12 @@ void UIManager::render() {
   case UIState::ACCORDS_CONFIRM:
     renderAccordsConfirm();
     break;
+  case UIState::PWM_MENU:
+    renderPwmMenu();
+    break;
+  case UIState::PWM_CONFIRM:
+    renderPwmConfirm();
+    break;
   case UIState::TEST_SELECT_PUMP:
     renderTestSelectPump();
     break;
@@ -641,6 +689,40 @@ void UIManager::renderAccordsConfirm() {
   sprintf(buf, "Reset Pump %d ?", confirmTargetPump + 1);
   DisplayManager::drawCenteredText(buf, 10);
   DisplayManager::drawCenteredText("Reset to default?", 20);
+
+  DisplayManager::getDisplay().setCursor(30, 40);
+  DisplayManager::getDisplay().print(menuSelectedIndex == 0 ? "> Confirm"
+                                                            : "  Confirm");
+  DisplayManager::getDisplay().setCursor(30, 50);
+  DisplayManager::getDisplay().print(menuSelectedIndex == 1 ? "> Cancel"
+                                                            : "  Cancel");
+
+  DisplayManager::display();
+}
+
+void UIManager::renderPwmMenu() {
+  DisplayManager::clear();
+  DisplayManager::drawHeader(" PWM SPEED CONTROL");
+
+  char buf[32];
+  sprintf(buf, "Duty Value: %d", tempPwmResolution);
+  DisplayManager::drawCenteredText(buf, 20);
+
+  uint8_t pct = (tempPwmResolution * 100) / 255;
+  sprintf(buf, "(~%d %%)", pct);
+  DisplayManager::drawCenteredText(buf, 35);
+
+  DisplayManager::drawCenteredText("SELECT to Save", 55);
+  DisplayManager::display();
+}
+
+void UIManager::renderPwmConfirm() {
+  DisplayManager::clear();
+  DisplayManager::drawCenteredText("Save PWM value?", 10);
+
+  char buf[32];
+  sprintf(buf, "Value: %d", tempPwmResolution);
+  DisplayManager::drawCenteredText(buf, 20);
 
   DisplayManager::getDisplay().setCursor(30, 40);
   DisplayManager::getDisplay().print(menuSelectedIndex == 0 ? "> Confirm"

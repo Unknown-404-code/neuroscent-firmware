@@ -20,12 +20,17 @@ public:
   static void dispenseFromContainer(uint8_t pumpIndex, float amountDispensed);
   static void resetContainer(uint8_t pumpIndex);
 
+  // PWM Configuration (duty cycle value)
+  static uint8_t getPwmResolution();
+  static void setPwmResolution(uint8_t pwm_res);
+
 private:
   static Preferences prefsCalib;
   static Preferences prefsConfig;
 
   static float calibrations[NUM_PUMPS];
   static float remaining_ml[NUM_PUMPS];
+  static uint8_t pwm_resolution;
 
   static String getPumpKey(uint8_t pumpIndex);
 };

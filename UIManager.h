@@ -13,6 +13,8 @@ enum class UIState {
   VIEW_CALIB_CONFIRM,
   ACCORDS_MENU,
   ACCORDS_CONFIRM,
+  PWM_MENU,
+  PWM_CONFIRM,
   TEST_SELECT_PUMP,
   TEST_SELECT_CONTAINER,
   TEST_SELECT_PERCENT,
@@ -52,6 +54,8 @@ private:
   static unsigned long calibrationStartTime;
   // View/Accords confirm target
   static uint8_t confirmTargetPump;
+  // PWM Config
+  static uint8_t tempPwmResolution;
   // Test Mode Variables
   static uint8_t testContainerMl;
   static uint8_t testPercent;
@@ -75,6 +79,8 @@ private:
   static void renderViewCalibConfirm();
   static void renderAccordsMenu();
   static void renderAccordsConfirm();
+  static void renderPwmMenu();
+  static void renderPwmConfirm();
   static void renderTestSelectPump();
   static void renderTestSelectContainer();
   static void renderTestSelectPercent();
@@ -96,6 +102,8 @@ private:
   static void handleViewCalibConfirm(ButtonEvent event);
   static void handleAccordsMenu(ButtonEvent event);
   static void handleAccordsConfirm(ButtonEvent event);
+  static void handlePwmMenu(ButtonEvent event);
+  static void handlePwmConfirm(ButtonEvent event);
   static void handleTestSelectPump(ButtonEvent event);
   static void handleTestSelectContainer(ButtonEvent event);
   static void handleTestSelectPercent(ButtonEvent event);
