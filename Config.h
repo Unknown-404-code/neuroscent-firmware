@@ -9,6 +9,24 @@
 enum class AppState { IDLE, BUSY };
 
 // ==========================================
+// SYSTEM OPERATION STATE
+// (Shared between OLED and Web UI to prevent conflicts)
+// ==========================================
+enum class SystemOperation {
+  IDLE,              // No hardware operation active
+  OLED_PURGING,      // Purge initiated from OLED
+  OLED_CALIBRATING,  // Calibration initiated from OLED
+  OLED_TESTING,      // Manual test initiated from OLED
+  WEB_PURGING,       // Purge initiated from web UI
+  WEB_CALIBRATING,   // Calibration initiated from web UI
+  FORMULA_PENDING,   // Formula received, awaiting OLED confirmation
+  FORMULA_DISPENSING // Formula confirmed, currently dispensing
+};
+
+// Firmware version
+#define FIRMWARE_VERSION "2.0.0-web-ui"
+
+// ==========================================
 // BUTTON EVENTS
 // ==========================================
 enum class ButtonEvent { NONE, UP, DOWN, SELECT, BACK };

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta name="description" content="NeuroScent Wi-Fi Setup — Connect your device to your network"/>
+  <title>NeuroScent — Wi-Fi Setup</title>
+  <link rel="stylesheet" href="/setup.css"/>
+</head>
+<body>
+  <div class="setup-container">
+    <div class="brand">
+      <div class="brand-icon">💧</div>
+      <h1>NeuroScent</h1>
+      <p class="brand-sub">Wi-Fi Setup</p>
+    </div>
+
+    <div class="card" id="setup-card">
+      <h2>Connect to Your Network</h2>
+      <p class="hint">Select your Wi-Fi network and enter the password to connect the NeuroScent device.</p>
+
+      <div class="field-group">
+        <label for="ssid-select">Network (SSID)</label>
+        <div class="ssid-row">
+          <select id="ssid-select">
+            <option value="">— Scanning... —</option>
+          </select>
+          <button id="scan-btn" class="btn-icon" title="Scan networks" onclick="scanNetworks()">⟳</button>
+        </div>
+        <label for="ssid-manual" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted)">Or enter manually (hidden network):</label>
+        <input type="text" id="ssid-manual" placeholder="Network name (SSID)" autocomplete="off" spellcheck="false"/>
+      </div>
+
+      <div class="field-group">
+        <label for="wifi-pass">Password</label>
+        <div class="pass-row">
+          <input type="password" id="wifi-pass" placeholder="Wi-Fi password" autocomplete="current-password"/>
+          <button class="btn-icon" onclick="togglePass()" title="Show/hide password">👁</button>
+        </div>
+      </div>
+
+      <button id="connect-btn" class="btn-primary" onclick="connect()">Connect</button>
+
+      <div id="status-msg" class="status-msg hidden"></div>
+    </div>
+
+    <div class="card hidden" id="connecting-card">
+      <div class="spinner"></div>
+      <h2>Connecting…</h2>
+      <p id="connecting-ssid" class="hint"></p>
+      <p class="hint">Check <strong>/api/network</strong> for status, or access the device at <strong>http://neuroscent.local</strong> once connected.</p>
+    </div>
+
+    <div class="footer">
+      <p>NeuroScent Firmware · Local network setup · No internet required</p>
+    </div>
+  </div>
+
+  <script src="/setup.js"></script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta name="description" content="NeuroScent — AI-Powered Perfume Dispenser Management Dashboard"/>
+  <meta name="theme-color" content="#0a0c14"/>
+  <title>NeuroScent Dashboard</title>
+  <link rel="stylesheet" href="/style.css"/>
+</head>
+<body>
+<div class="app-layout" id="app">
+
+  <!-- ====== TOPBAR ====== -->
+  <header class="topbar">
+    <button class="btn-mobile-menu" id="menu-toggle" title="Toggle menu" onclick="toggleSidebar()">☰</button>
+    <a class="topbar-brand" href="#" onclick="navigate('dashboard');return false;">
+      <div class="brand-dot">💧</div>
+      <span>NeuroScent</span>
+    </a>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-status">
+      <div class="status-dot" id="wifi-dot"></div>
+      <span id="wifi-label">—</span>
+    </div>
+    <div class="topbar-status" style="margin-left:12px;">
+      <div class="status-dot" id="sys-dot"></div>
+      <span id="sys-label">—</span>
+    </div>
+    <div class="topbar-auth" style="margin-left:16px;">
+      <span class="role-badge" id="role-badge">guest</span>
+      <button class="btn-login"  id="btn-login"  onclick="showLoginModal()" style="display:none">Login</button>
+      <button class="btn-logout" id="btn-logout" onclick="logout()" style="display:none">Logout</button>
+    </div>
+  </header>
+
+  <!-- ====== SIDEBAR ====== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="nav-section-label">Monitoring</div>
+    <a class="nav-item" data-page="dashboard" href="#" onclick="navigate('dashboard');return false;">
+      <span class="nav-icon">📊</span> Dashboard
+    </a>
+    <a class="nav-item" data-page="pumps" href="#" onclick="navigate('pumps');return false;">
+      <span class="nav-icon">⚙️</span> Pumps
+    </a>
+    <a class="nav-item" data-page="accords" href="#" onclick="navigate('accords');return false;">
+      <span class="nav-icon">🧴</span> Accords
+    </a>
+    <div class="nav-section-label">Configuration</div>
+    <a class="nav-item" data-page="calibration" href="#" onclick="navigate('calibration');return false;">
+      <span class="nav-icon">🎯</span> Calibration
+    </a>
+    <a class="nav-item" data-page="formula" href="#" onclick="navigate('formula');return false;">
+      <span class="nav-icon">🧪</span> Formula Testing
+    </a>
+    <div class="nav-section-label">System</div>
+    <a class="nav-item" data-page="logs" href="#" onclick="navigate('logs');return false;">
+      <span class="nav-icon">📋</span> Activity Logs
+    </a>
+    <a class="nav-item" data-page="settings" href="#" onclick="navigate('settings');return false;">
+      <span class="nav-icon">⚙️</span> Settings
+    </a>
+  </aside>
+
+  <!-- ====== MAIN CONTENT ====== -->
+  <main class="main-content" id="page-content">
+    <!-- Injected by app.js -->
+    <div class="flex-center" style="height:200px;">
+      <div class="spinner"></div>
+    </div>
+  </main>
+
+</div>
+
+<!-- ====== TOAST CONTAINER ====== -->
+<div id="toast-container"></div>
+
+<!-- ====== LOGIN MODAL ====== -->
+<div class="modal-overlay hidden" id="login-modal" onclick="if(event.target===this)hideLoginModal()">
+  <div class="modal">
+    <h3>Administrator Login</h3>
+    <p>Enter the admin password to access device controls.</p>
+    <div class="form-group">
+      <label class="form-label" for="login-pass">Password</label>
+      <input class="form-input" type="password" id="login-pass" placeholder="Admin password"
+             onkeydown="if(event.key==='Enter')submitLogin()"/>
+    </div>
+    <div id="login-error" class="text-error hidden" style="font-size:0.85rem;margin-bottom:12px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="hideLoginModal()">Cancel</button>
+      <button class="btn btn-primary" id="login-btn" onclick="submitLogin()">Login</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== CONFIRM MODAL ====== -->
+<div class="modal-overlay hidden" id="confirm-modal" onclick="if(event.target===this)closeConfirm(false)">
+  <div class="modal">
+    <h3 id="confirm-title">Confirm Action</h3>
+    <p id="confirm-body">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeConfirm(false)">Cancel</button>
+      <button class="btn btn-danger" id="confirm-ok" onclick="closeConfirm(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

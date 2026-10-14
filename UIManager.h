@@ -24,7 +24,9 @@ enum class UIState {
   FORMULA_RUNNING,
   FORMULA_STOP_CONFIRM,
   FORMULA_FINISHED,
-  FORMULA_ERROR
+  FORMULA_ERROR,
+  NETWORK_PAGE,
+  NETWORK_SETUP_CONFIRM
 };
 
 class UIManager {
@@ -91,6 +93,8 @@ private:
   static void renderFormulaStopConfirm();
   static void renderFormulaFinished();
   static void renderFormulaError();
+  static void renderNetworkPage();
+  static void renderNetworkSetupConfirm();
 
   // Event handlers
   static void handleMainMenu(ButtonEvent event);
@@ -114,6 +118,8 @@ private:
   static void handleFormulaStopConfirm(ButtonEvent event);
   static void handleFormulaFinished(ButtonEvent event);
   static void handleFormulaError(ButtonEvent event);
+  static void handleNetworkPage(ButtonEvent event);
+  static void handleNetworkSetupConfirm(ButtonEvent event);
 
   // Helpers
   static void changeState(UIState newState);
