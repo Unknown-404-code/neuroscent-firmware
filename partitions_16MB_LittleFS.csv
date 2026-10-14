@@ -1,0 +1,22 @@
+# NeuroScent Custom Partition Table — ESP32-S3 N16R8 (16 MB Flash)
+# 
+# Layout (total usable: 16 MB = 0x1000000):
+#   nvs       :   20 KB  — NVS (calibration, container levels, settings)
+#   otadata   :    8 KB  — OTA metadata
+#   app0      :    3 MB  — Main application (no OTA slot — maximizes LittleFS)
+#   littlefs  :   ~9 MB  — Web UI assets, logs
+#   coredump  :   64 KB  — Crash diagnostics
+#
+# Select in Arduino IDE: Tools > Partition Scheme > Custom (use this file)
+# Or via platformio.ini: board_build.partitions = partitions_16MB_LittleFS.csv
+#
+# IMPORTANT: Changing partition scheme erases all flash partitions.
+# NVS data (calibrations, container levels) will be LOST on repartition.
+# Back up settings before changing partition scheme.
+#
+# Name,     Type, SubType,  Offset,   Size,    Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xe000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x300000,
+littlefs,   data, spiffs,   0x310000,0x9D0000,
+coredump,   data, coredump, 0xCE0000, 0x10000,

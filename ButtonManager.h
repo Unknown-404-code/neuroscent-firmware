@@ -20,6 +20,10 @@ private:
     bool currentState;
     unsigned long lastDebounceTime;
     ButtonEvent eventToTrigger;
+
+    // Auto-repeat fields
+    bool isRepeating;
+    unsigned long lastRepeatTime;
   };
 
   static ButtonState buttons[4];

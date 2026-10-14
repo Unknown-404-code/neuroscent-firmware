@@ -1,0 +1,39 @@
+# ==========================================
+# NeuroScent Firmware — .gitignore
+# ==========================================
+
+# Credentials / Secrets (NEVER commit these)
+secrets.h
+credentials.h
+wifi_config.h
+*.secret
+*.credentials
+
+# Arduino IDE build artifacts
+build/
+*.elf
+*.bin
+*.map
+*.hex
+
+# Arduino IDE temp files
+*.bak
+*.orig
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python (used by esptool, etc.)
+__pycache__/
+*.pyc
+*.pyo
