@@ -147,11 +147,15 @@ bool WiFiProvisioning::hasSavedCredentials() {
 bool WiFiProvisioning::attemptConnect(const String& ssid, const String& password) {
   if (ssid.isEmpty()) return false;
 
-  // Save to NVS
-  netPrefs.begin(NET_NS, false);
-  netPrefs.putString(KEY_SSID, ssid);
-  netPrefs.putString(KEY_PASS, password);
-  netPrefs.end();
+  // Save to NVS: this network moves to the front, the rest keep their order
+  String oldS[MAX_SAVED], oldP[MAX_SAVED];
+  uint8_t n = loadSavedNetworks(oldS, oldP);
+  String newS[MAX_SAVED] = {ssid}, newP[MAX_SAVED] = {password};
+  uint8_t m = 1;
+  for (uint8_t i = 0; i < n && m < MAX_SAVED; i++) {
+    if (oldS[i] != ssid) { newS[m] = oldS[i]; newP[m] = oldP[i]; m++; }
+  }
+  storeSavedNetworks(newS, newP, m);
 
   Serial.println("[WiFi] Saving credentials and connecting to: " + ssid);
 
@@ -167,12 +171,62 @@ bool WiFiProvisioning::attemptConnect(const String& ssid, const String& password
   return true;
 }
 
-void WiFiProvisioning::clearSavedCredentials() {
-  netPrefs.begin(NET_NS, false);
-  netPrefs.remove(KEY_SSID);
-  netPrefs.remove(KEY_PASS);
+// Slot 0 keeps the original "ssid"/"pass" keys so existing devices keep their network
+static String slotKey(const char* prefix, uint8_t i) {
+  return i == 0 ? String(prefix) : String(prefix) + i;
+}
+
+uint8_t WiFiProvisioning::loadSavedNetworks(String ssids[], String passes[]) {
+  uint8_t n = 0;
+  if (!netPrefs.begin(NET_NS, true)) return 0;  // namespace not created yet
+  for (uint8_t i = 0; i < MAX_SAVED; i++) {
+    String k = slotKey(KEY_SSID, i);
+    if (!netPrefs.isKey(k.c_str())) continue;
+    String s = netPrefs.getString(k.c_str(), "");
+    if (s.isEmpty()) continue;
+    ssids[n] = s;
+    passes[n] = netPrefs.getString(slotKey(KEY_PASS, i).c_str(), "");
+    n++;
+  }
   netPrefs.end();
-  Serial.println("[WiFi] Credentials cleared.");
+  return n;
+}
+
+void WiFiProvisioning::storeSavedNetworks(const String ssids[], const String passes[], uint8_t count) {
+  netPrefs.begin(NET_NS, false);
+  for (uint8_t i = 0; i < MAX_SAVED; i++) {
+    String ks = slotKey(KEY_SSID, i), kp = slotKey(KEY_PASS, i);
+    if (i < count) {
+      netPrefs.putString(ks.c_str(), ssids[i]);
+      netPrefs.putString(kp.c_str(), passes[i]);
+    } else {
+      netPrefs.remove(ks.c_str());
+      netPrefs.remove(kp.c_str());
+    }
+  }
+  netPrefs.end();
+}
+
+bool WiFiProvisioning::getSavedPassword(const String& ssid, String& password) {
+  String s[MAX_SAVED], p[MAX_SAVED];
+  uint8_t n = loadSavedNetworks(s, p);
+  for (uint8_t i = 0; i < n; i++) {
+    if (s[i] == ssid) { password = p[i]; return true; }
+  }
+  return false;
+}
+
+bool WiFiProvisioning::forgetNetwork(const String& ssid) {
+  String s[MAX_SAVED], p[MAX_SAVED];
+  uint8_t n = loadSavedNetworks(s, p);
+  uint8_t m = 0;
+  for (uint8_t i = 0; i < n; i++) {
+    if (s[i] != ssid) { s[m] = s[i]; p[m] = p[i]; m++; }
+  }
+  if (m == n) return false;
+  storeSavedNetworks(s, p, m);
+  Serial.println("[WiFi] Forgot network: " + ssid);
+  return true;
 }
 
 // --------------------------------------------------------

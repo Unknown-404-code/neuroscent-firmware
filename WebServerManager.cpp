@@ -96,6 +96,8 @@ void WebServerManager::init() {
   // ---- Wi-Fi ----
   server.on("/api/wifi/scan",    HTTP_GET,  handleApiWifiScan);
   server.on("/api/wifi/connect", HTTP_POST, handleApiWifiConnect);
+  server.on("/api/wifi/saved",   HTTP_GET,  handleApiWifiSaved);
+  server.on("/api/wifi/forget",  HTTP_POST, handleApiWifiForget);
 
   // ---- 404 handler serves SPA ----
   server.onNotFound(handleNotFound);
@@ -896,8 +898,9 @@ void WebServerManager::handleApiLogs() {
   uint16_t total = LogManager::getCount();
   String json = "{\"status\":\"ok\",\"total\":" + String(total) + ",\"logs\":[";
 
-  // Return up to 100 most recent entries
+  // Return the most recent entries (?limit=N, default and max 100)
   uint16_t limit = min(total, (uint16_t)100);
+  if (server.hasArg("limit")) limit = min(limit, (uint16_t)constrain(server.arg("limit").toInt(), 1, 100));
   for (uint16_t i = 0; i < limit; i++) {
     LogEntry e;
     if (LogManager::getEntry(i, e)) {
@@ -1005,7 +1008,11 @@ void WebServerManager::handleApiSettingsNetwork() {
 // Wi-Fi scan/connect
 // --------------------------------------------------------
 void WebServerManager::handleApiWifiScan() {
-  // Scan available networks
+  // The scan blocks the loop for a few seconds, which would stretch pump timing
+  if (PumpManager::isAnyPumpRunning()) {
+    sendError(503, "Can't scan while a pump is running");
+    return;
+  }
   int n = WiFi.scanNetworks(false, false);  // blocking scan
   String json = "{\"status\":\"ok\",\"networks\":[";
   for (int i = 0; i < n; i++) {
@@ -1036,7 +1043,15 @@ void WebServerManager::handleApiWifiConnect() {
   if (!parseJsonBody(body, "ssid", ssid) || ssid.isEmpty()) {
     sendError(400, "SSID is required"); return;
   }
-  parseJsonBody(body, "password", password);  // Can be empty for open networks
+  String useSaved;
+  if (parseJsonBody(body, "saved", useSaved) && useSaved == "true") {
+    // Switching to a remembered network: the browser never sees the password
+    if (!WiFiProvisioning::getSavedPassword(ssid, password)) {
+      sendError(404, "Network is not saved"); return;
+    }
+  } else {
+    parseJsonBody(body, "password", password);  // Can be empty for open networks
+  }
 
   bool ok = WiFiProvisioning::attemptConnect(ssid, password);
   if (ok) {
@@ -1048,4 +1063,27 @@ void WebServerManager::handleApiWifiConnect() {
   } else {
     sendError(400, "Failed to initiate connection");
   }
+}
+
+void WebServerManager::handleApiWifiSaved() {
+  if (!AuthManager::requireAdmin(server)) return;
+  String ssids[WiFiProvisioning::MAX_SAVED], passes[WiFiProvisioning::MAX_SAVED];
+  uint8_t n = WiFiProvisioning::loadSavedNetworks(ssids, passes);
+  String json = "{\"status\":\"ok\",\"networks\":[";
+  for (uint8_t i = 0; i < n; i++) {
+    if (i > 0) json += ",";
+    json += "\"" + LogManager::jsonEscape(ssids[i]) + "\"";
+  }
+  json += "]}";
+  sendJson(200, json);
+}
+
+void WebServerManager::handleApiWifiForget() {
+  if (!AuthManager::requireAdmin(server)) return;
+  String ssid;
+  if (!parseJsonBody(getBodyArg(), "ssid", ssid) || !WiFiProvisioning::forgetNetwork(ssid)) {
+    sendError(404, "Network is not saved"); return;
+  }
+  LogManager::log(LogEvent::SETTINGS_CHANGED, LogSeverity::INFO, "Forgot Wi-Fi network: " + ssid);
+  sendOk("Network forgotten");
 }

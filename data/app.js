@@ -225,14 +225,13 @@ function updatePageLive() {
 // PAGE: DASHBOARD
 // ==============================================================
 async function dashboard() {
-  // Fetch extra data needed by dashboard
   try {
-    const [ac, status] = await Promise.all([
-      api('GET', '/api/accords'),
+    const [cal, status] = await Promise.all([
+      api('GET', '/api/calibration'),
       api('GET', '/api/status'),
     ]);
-    State.accords = ac.accords || [];
-    State.status  = status;
+    State.calibration = cal;
+    State.status      = status;
   } catch {}
 
   const p = document.getElementById('page-content');
@@ -251,7 +250,7 @@ async function dashboard() {
       <div class="stat-card">
         <div class="stat-label">System State</div>
         <div class="stat-value" id="d-state" style="font-size:1.1rem">${(State.status.state||'idle').replace(/_/g,' ')}</div>
-        <div class="stat-sub">Firmware ${State.status.firmware||'—'}</div>
+        <div class="stat-sub">Firmware ${esc(State.status.firmware||'—')}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Uptime</div>
@@ -261,7 +260,7 @@ async function dashboard() {
       <div class="stat-card">
         <div class="stat-label">Wi-Fi</div>
         <div class="stat-value" style="font-size:1rem" id="d-wifi">${esc(State.network.ssid || State.network.wifi_state || '—')}</div>
-        <div class="stat-sub" id="d-ip">${State.network.ip || ''}</div>
+        <div class="stat-sub" id="d-ip">${esc(State.network.ip || '')}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Signal</div>
@@ -278,9 +277,7 @@ async function dashboard() {
           <span class="state-badge ${stateClass(State.formula.formula_state)}">
             ${dot(State.formula.formula_state)} ${(State.formula.formula_state||'idle').replace(/_/g,' ')}
           </span>
-          <span class="text-muted" style="font-size:0.85rem" id="d-formula-pump">
-            ${State.formula.running_pump >= 0 ? 'Pump ' + (State.formula.running_pump + 1) : ''}
-          </span>
+          <span class="text-muted" style="font-size:0.85rem" id="d-formula-pump"></span>
         </div>
         <div class="progress-bar"><div class="fill" id="d-formula-bar" style="width:${State.formula.step_progress||0}%"></div></div>
         <div style="margin-top:8px;font-size:0.82rem;color:var(--text-muted)">Step progress: <span id="d-formula-pct">${State.formula.step_progress||0}</span>%</div>
@@ -290,22 +287,27 @@ async function dashboard() {
       </div>
     </div>
 
-    <!-- Pump overview -->
     <div class="card">
       <div class="card-title">Pump Overview</div>
-      <div class="pumps-grid" id="dash-pumps">
-        ${State.pumps.map(renderPumpCard).join('')}
-      </div>
+      <div class="pumps-grid" id="dash-pumps"></div>
     </div>
 
-    <!-- Accord levels -->
-    <div class="card">
-      <div class="card-title">Accord Levels</div>
-      <div id="dash-accords">
-        ${State.accords.length ? renderAccordBars(State.accords) : '<div class="text-muted">Loading…</div>'}
+    <div class="split-grid">
+      <div class="card">
+        <div class="card-title">Needs Attention</div>
+        <div id="dash-attention"></div>
+      </div>
+      <div class="card">
+        <div class="card-title-row">
+          <div class="card-title">Recent Activity</div>
+          <a href="#" class="link" onclick="navigate('logs');return false;">View all →</a>
+        </div>
+        <div id="dash-activity"><div class="empty-mini">Loading…</div></div>
       </div>
     </div>
   `;
+  dashboard_update();
+  loadDashActivity();
 }
 
 function dashboard_update() {
@@ -315,7 +317,6 @@ function dashboard_update() {
   const dWifi  = document.getElementById('d-wifi');
   const dIp    = document.getElementById('d-ip');
   const dRssi  = document.getElementById('d-rssi');
-  const dPumps = document.getElementById('dash-pumps');
   const fSec   = document.getElementById('formula-progress-section');
   const fBar   = document.getElementById('d-formula-bar');
   const fPct   = document.getElementById('d-formula-pct');
@@ -327,20 +328,24 @@ function dashboard_update() {
   if (dWifi)  dWifi.textContent = State.network.ssid || State.network.wifi_state || '—';
   if (dIp)    dIp.textContent = State.network.ip || '';
   if (dRssi)  dRssi.textContent = State.network.rssi ? State.network.rssi + ' dBm' : '—';
-  setHtml(dPumps, State.pumps.map(renderPumpCard).join(''));
+  setHtml(document.getElementById('dash-pumps'), State.pumps.map(renderPumpCard).join(''));
+  setHtml(document.getElementById('dash-attention'), renderAttention());
 
   if (fSec) fSec.classList.toggle('hidden', State.formula.formula_state === 'idle');
   if (fBar) fBar.style.width = (State.formula.step_progress || 0) + '%';
   if (fPct) fPct.textContent = State.formula.step_progress || 0;
   if (fPump) fPump.textContent = State.formula.running_pump >= 0 ? 'Pump ' + (State.formula.running_pump + 1) : '';
+
+  // Logs are heavier than status, so refresh them every ~10 s rather than every poll
+  if (Date.now() - (State.activityAt || 0) > 10000) loadDashActivity();
 }
 
 function renderPumpCard(p) {
-  const pct  = Math.round(p.percent);
+  const pct  = clampPct(p.percent);
   const cls  = p.running ? 'running' : p.low_liquid ? 'low' : '';
   const indCls = p.running ? 'on' : p.low_liquid ? 'low' : '';
   return `<div class="pump-card ${cls}">
-    <div class="vial"><div class="liquid" style="height:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
+    <div class="vial"><div class="liquid" style="height:${pct}%"></div></div>
     <div class="pump-info">
       <div class="pump-header">
         <div class="pump-num">Pump ${p.pump}</div>
@@ -353,109 +358,138 @@ function renderPumpCard(p) {
   </div>`;
 }
 
-function renderAccordBars(accords) {
-  return accords.map(a => {
-    const pct = Math.round(a.percent);
-    const fillCls = pct <= 20 ? 'error' : pct <= 40 ? 'warn' : '';
-    return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
-      <div style="width:150px;font-size:0.82rem;color:var(--text-muted);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        P${a.pump} ${a.name ? '<span style="color:var(--text-dim)">'+esc(a.name)+'</span>' : ''}
-      </div>
-      <div class="progress-bar" style="flex:1"><div class="fill ${fillCls}" style="width:${pct}%"></div></div>
-      <div style="width:56px;text-align:right;font-size:0.82rem;color:var(--text-dim)">${a.remaining_ml.toFixed(1)} mL</div>
-      ${a.low_liquid ? '<span style="color:var(--warn);font-size:0.8rem">⚠</span>' : '<span style="width:16px"></span>'}
-    </div>`;
-  }).join('');
+const DEFAULT_ML_PER_MS = 0.005;  // firmware default = never calibrated
+const isDefaultCalib = c => Math.abs(c.ml_per_ms - DEFAULT_ML_PER_MS) < 1e-7;
+
+function renderAttention() {
+  const items = [];
+  if (State.formula.formula_state === 'awaiting_confirmation')
+    items.push({ kind: 'pending', title: 'Formula waiting for you', sub: 'Press SELECT on the device to start dispensing.' });
+  State.pumps.filter(p => p.low_liquid).forEach(p => items.push({
+    kind: 'low', title: `Pump ${p.pump} is running low`,
+    sub: `${esc(p.name) || 'Unassigned'} · ${p.remaining_ml.toFixed(1)} mL left`,
+    action: `refillAccord(${p.pump})`, label: 'Refill' }));
+  (State.calibration.calibrations || []).filter(isDefaultCalib).forEach(c => items.push({
+    kind: 'info', title: `Pump ${c.pump} isn't calibrated`, sub: 'Formulas use the default flow rate.',
+    action: `navigate('calibration')`, label: 'Calibrate' }));
+
+  if (!items.length) return `<div class="all-good">
+    <span class="all-good-icon">✓</span>
+    <div><strong>All good</strong><p>Every container is above its low-level warning and all pumps are calibrated.</p></div>
+  </div>`;
+  return `<ul class="row-list">${items.map(i => `
+    <li class="row-item ${i.kind}">
+      <span class="row-dot"></span>
+      <div class="row-text"><strong>${i.title}</strong><span>${i.sub}</span></div>
+      ${i.action ? `<button class="btn btn-ghost btn-sm" onclick="${i.action}">${i.label}</button>` : ''}
+    </li>`).join('')}</ul>`;
 }
+
+async function loadDashActivity() {
+  const el = document.getElementById('dash-activity');
+  if (!el) return;
+  State.activityAt = Date.now();
+  if (State.role !== 'admin') {
+    setHtml(el, `<div class="empty-mini">Log in to see recent activity. <a href="#" class="link" onclick="showLoginModal();return false;">Login</a></div>`);
+    return;
+  }
+  try {
+    const d = await api('GET', '/api/logs?limit=6');
+    const kind = { INFO: 'info', WARN: 'low', ERROR: 'error' };
+    setHtml(el, d.logs.length ? `<ul class="row-list">${d.logs.map(l => `
+      <li class="row-item ${kind[l.severity] || 'info'}">
+        <span class="row-dot"></span>
+        <div class="row-text"><strong>${esc(prettyEvent(l.event))}</strong><span>${esc(l.description)}</span></div>
+        <time class="row-time">${ago(l.uptime)}</time>
+      </li>`).join('')}</ul>` : '<div class="empty-mini">No activity yet.</div>');
+  } catch { setHtml(el, '<div class="empty-mini">Could not load activity.</div>'); }
+}
+
+function prettyEvent(e) {
+  const s = String(e || '').toLowerCase().replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Log times are device uptime ("HH:MM:SS.mmm"); compare with the current uptime
+function ago(uptime) {
+  const [h, m, s] = String(uptime).split(':').map(parseFloat);
+  const diff = Math.max(0, (State.status.uptime_s || 0) - (h * 3600 + m * 60 + s));
+  if (diff < 60)   return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  return Math.floor(diff / 3600) + 'h ago';
+}
+
+function clampPct(v) { return Math.min(Math.max(Math.round(v) || 0, 0), 100); }
 
 // ==============================================================
 // PAGE: PUMPS
 // ==============================================================
 async function pumps() {
-  const p = document.getElementById('page-content');
-  p.innerHTML = `
+  try { State.settings = await api('GET', '/api/settings'); } catch {}
+  document.getElementById('page-content').innerHTML = `
     <div class="page-header">
       <div>
         <h1 class="page-title">Pumps</h1>
-        <p class="page-sub">Purge and test individual pumps</p>
+        <p class="page-sub">Purge a line to prime it or flush it clean. The device stops a purge on its own after ${State.settings.max_purge_s || 60} s.</p>
       </div>
     </div>
-    <div class="card" style="margin-bottom:0">
-      <div class="card-title">Web Purge Control</div>
-      <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">
-        Select a pump and press Start Purging. The pump will run until you stop it or the maximum duration is reached (firmware-enforced).
-        <span style="color:var(--warn)"> Admin only.</span>
-      </p>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;">
-        <select class="form-select" id="purge-pump-select" style="max-width:180px;">
-          ${Array.from({length:8},(_,i)=>`<option value="${i+1}">Pump ${i+1}</option>`).join('')}
-        </select>
-        <button id="purge-start-btn" class="btn btn-success" onclick="startPurge()">▶ Start Purging</button>
-        <button id="purge-stop-btn"  class="btn btn-danger hidden" onclick="stopPurge()">■ Stop Purging</button>
-      </div>
-      <div id="purge-status" class="hidden" style="padding:12px;background:var(--surface2);border-radius:var(--radius-sm);font-size:0.88rem;">
-        Running Pump <span id="purge-pump-num">—</span> &nbsp;·&nbsp;
-        Elapsed: <span id="purge-elapsed">0s</span>
-      </div>
-    </div>
-    <div class="card" style="margin-top:18px">
-      <div class="card-title">Pump Status</div>
-      <div class="pumps-grid" id="pumps-grid">
-        ${State.pumps.map(renderPumpCard).join('')}
-      </div>
-    </div>
-  `;
-  updatePurgeUI();
+    <div class="tile-grid" id="pump-tiles"></div>`;
+  pumps_update();
 }
 
 function pumps_update() {
-  const grid = document.getElementById('pumps-grid');
-  setHtml(grid, State.pumps.map(renderPumpCard).join(''));
-  updatePurgeUI();
+  const grid = document.getElementById('pump-tiles');
+  if (!grid) return;
+  const busy = (State.status.state || 'idle') !== 'idle';
+  setHtml(grid, State.pumps.map(p => {
+    const pct  = clampPct(p.percent);
+    const mine = State.purgeRunning && State.activePump === p.pump;
+    return `<div class="tile pump-tile ${p.running ? 'running' : ''} ${p.low_liquid ? 'low' : ''}">
+      <div class="tile-head">
+        <span class="tile-kicker">Pump ${p.pump}</span>
+        ${p.running ? '<span class="chip chip-accent">● Running</span>' : p.low_liquid ? '<span class="chip chip-warn">⚠ Low</span>' : '<span class="chip">Idle</span>'}
+      </div>
+      <div class="pump-tile-body">
+        <div class="vial vial-lg"><div class="liquid" style="height:${pct}%"></div></div>
+        <div class="pump-tile-info">
+          <div class="tile-name">${esc(p.name) || '<span class="text-muted">Unassigned</span>'}</div>
+          <div class="tile-figure">${p.remaining_ml.toFixed(1)}<small> mL</small></div>
+          <div class="tile-sub">of ${p.capacity_ml.toFixed(0)} mL · ${pct}%</div>
+        </div>
+      </div>
+      ${mine
+        ? `<button class="btn btn-danger btn-block" onclick="stopPurge()">■ Stop purging · <span data-purge-elapsed>0s</span></button>`
+        : `<button class="btn btn-primary btn-block" onclick="startPurge(${p.pump})" ${busy ? 'disabled' : ''}>▶ Start purging</button>`}
+    </div>`;
+  }).join(''));
   updatePurgeElapsed();
 }
 
-function updatePurgeUI() {
-  const start = document.getElementById('purge-start-btn');
-  const stop  = document.getElementById('purge-stop-btn');
-  const sts   = document.getElementById('purge-status');
-  if (!start) return;
-  if (State.purgeRunning) {
-    start.classList.add('hidden');
-    stop.classList.remove('hidden');
-    sts.classList.remove('hidden');
-    document.getElementById('purge-pump-num').textContent = State.activePump;
-  } else {
-    start.classList.remove('hidden');
-    stop.classList.add('hidden');
-    sts.classList.add('hidden');
-  }
-}
-
 function updatePurgeElapsed() {
-  if (!State.purgeRunning) return;
-  const el = document.getElementById('purge-elapsed');
-  if (el) el.textContent = Math.round((Date.now() - State.calibStartMs) / 1000) + 's';
+  const el = document.querySelector('[data-purge-elapsed]');
+  if (el && State.purgeRunning) el.textContent = Math.round((Date.now() - State.calibStartMs) / 1000) + 's';
 }
 
-async function startPurge() {
+async function startPurge(pump) {
   if (!requireAdmin()) return;
-  const pump = parseInt(document.getElementById('purge-pump-select').value);
   try {
     await api('POST', '/api/pumps/purge/start', { pump });
     State.purgeRunning = true;
     State.activePump   = pump;
     State.calibStartMs = Date.now();
-    updatePurgeUI();
-    toast(`Purge started — Pump ${pump}`, 'success');
+    State.status.state = 'web_purging';
+    pumps_update();
+    toast(`Purging Pump ${pump}`, 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
+
 async function stopPurge() {
   try {
     await api('POST', '/api/pumps/purge/stop');
     State.purgeRunning = false;
     State.activePump   = null;
-    updatePurgeUI();
+    State.status.state = 'idle';
+    pumps_update();
     toast('Purge stopped', 'info');
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -464,65 +498,52 @@ async function stopPurge() {
 // PAGE: CALIBRATION
 // ==============================================================
 async function calibration() {
-  try {
-    const d = await api('GET', '/api/calibration');
-    State.calibration = d;
-  } catch {}
-
+  try { State.calibration = await api('GET', '/api/calibration'); } catch {}
   const target = State.calibration.target_ml || 100;
-  const rows = (State.calibration.calibrations || []).map(c => `
-    <tr>
-      <td>Pump ${c.pump}</td>
-      <td class="font-mono">${c.ml_per_ms.toFixed(6)}</td>
-      <td class="font-mono">${c.ml_per_s.toFixed(4)} mL/s</td>
-      <td>
-        <button class="btn btn-success btn-sm" onclick="startCalib(${c.pump})">▶ Start</button>
-        <button class="btn btn-warn btn-sm" onclick="stopCalib()" id="calib-stop-${c.pump}" style="display:none">■ Stop</button>
-        <button class="btn btn-ghost btn-sm" onclick="resetCalib(${c.pump})">↺ Reset</button>
-      </td>
-    </tr>`).join('');
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header">
       <div>
         <h1 class="page-title">Calibration</h1>
-        <p class="page-sub">Calibrate pump flow rates. Target volume: <strong>${target} mL</strong> (change in Settings)</p>
+        <p class="page-sub">Measures each pump's flow rate so formulas dispense the right amount.</p>
       </div>
     </div>
-    <div class="card">
-      <div id="calib-active-msg" class="hidden" style="padding:14px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm);margin-bottom:16px;">
-        <strong style="color:var(--warn)">🔬 Calibrating Pump <span id="calib-active-pump">—</span></strong>
-        &nbsp; Elapsed: <span id="calib-elapsed">0s</span>
-        <p style="font-size:0.82rem;color:var(--text-muted);margin-top:6px;">
-          Collect <strong>${target} mL</strong> of liquid, then press ■ Stop to save the calibration.
-        </p>
-      </div>
-      <div class="card-title">Calibration Values</div>
-      <div style="overflow-x:auto;">
-        <table class="data-table">
-          <thead><tr>
-            <th>Pump</th>
-            <th>mL/ms (raw)</th>
-            <th>mL/s (display)</th>
-            <th>Actions</th>
-          </tr></thead>
-          <tbody id="calib-table">${rows}</tbody>
-        </table>
-      </div>
-    </div>`;
+    <div class="card steps-card">
+      <div class="step"><span class="step-n">1</span><div><strong>Place a measuring cup</strong><span>under the pump's nozzle</span></div></div>
+      <div class="step"><span class="step-n">2</span><div><strong>Press Start</strong><span>and watch the cup fill</span></div></div>
+      <div class="step"><span class="step-n">3</span><div><strong>Stop at ${target} mL</strong><span>the flow rate is saved</span></div></div>
+      <a class="link steps-link" href="#" onclick="navigate('settings');return false;">Change target volume →</a>
+    </div>
+    <div class="tile-grid" id="calib-tiles"></div>`;
   calibration_update();
 }
 
 function calibration_update() {
-  const msg = document.getElementById('calib-active-msg');
-  if (!msg) return;
-  msg.classList.toggle('hidden', !State.calibRunning);
-  document.getElementById('calib-active-pump').textContent = State.activePump;
-  document.getElementById('calib-elapsed').textContent =
-    Math.round((Date.now() - State.calibStartMs) / 1000) + 's';
-  document.querySelectorAll('[id^="calib-stop-"]').forEach(b => {
-    b.style.display = State.calibRunning && b.id === `calib-stop-${State.activePump}` ? 'inline-flex' : 'none';
-  });
+  const grid = document.getElementById('calib-tiles');
+  if (!grid) return;
+  const target = State.calibration.target_ml || 100;
+  const busy = (State.status.state || 'idle') !== 'idle';
+  setHtml(grid, (State.calibration.calibrations || []).map(c => {
+    const active = State.calibRunning && State.activePump === c.pump;
+    const chip = active ? '<span class="chip chip-accent">● Calibrating</span>'
+               : isDefaultCalib(c) ? '<span class="chip">Default</span>'
+               : '<span class="chip chip-ok">✓ Calibrated</span>';
+    return `<div class="tile calib-tile ${active ? 'running' : ''}">
+      <div class="tile-head"><span class="tile-kicker">Pump ${c.pump}</span>${chip}</div>
+      ${active ? `
+        <div class="tile-figure" data-calib-elapsed>0<small> s</small></div>
+        <div class="tile-sub">Stop when the cup reaches ${target} mL</div>
+        <div class="tile-actions"><button class="btn btn-warn btn-block" onclick="stopCalib()">■ Stop &amp; save</button></div>` : `
+        <div class="tile-figure">${c.ml_per_s.toFixed(2)}<small> mL/s</small></div>
+        <div class="tile-sub font-mono">${c.ml_per_ms.toFixed(6)} mL/ms</div>
+        <div class="tile-actions">
+          <button class="btn btn-primary" onclick="startCalib(${c.pump})" ${busy ? 'disabled' : ''}>▶ Start</button>
+          <button class="btn btn-ghost" onclick="resetCalib(${c.pump})" ${busy ? 'disabled' : ''}>↺ Reset</button>
+        </div>`}
+    </div>`;
+  }).join(''));
+  const el = grid.querySelector('[data-calib-elapsed]');
+  if (el) el.innerHTML = Math.round((Date.now() - State.calibStartMs) / 1000) + '<small> s</small>';
 }
 
 async function startCalib(pump) {
@@ -532,8 +553,9 @@ async function startCalib(pump) {
     State.calibRunning = true;
     State.activePump   = pump;
     State.calibStartMs = Date.now();
+    State.status.state = 'web_calibrating';
     calibration_update();
-    toast(`Calibration started — Pump ${pump}`, 'success');
+    toast(`Calibrating Pump ${pump}`, 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -541,15 +563,16 @@ async function stopCalib() {
   try {
     const d = await api('POST', '/api/calibration/stop');
     State.calibRunning = false;
-    toast(`Pump ${d.pump} calibrated: ${d.ml_per_s.toFixed(4)} mL/s`, 'success', 6000);
-    calibration(); // Refresh page
-  } catch(e) { toast(e.message, 'error'); }
+    State.status.state = 'idle';
+    toast(`Pump ${d.pump} calibrated: ${d.ml_per_s.toFixed(2)} mL/s`, 'success', 6000);
+    calibration();
+  } catch(e) { toast(e.message, 'error'); calibration(); }
 }
 
 async function resetCalib(pump) {
   if (!requireAdmin()) return;
   const ok = await confirm(`Reset Pump ${pump} Calibration?`,
-    `This will reset Pump ${pump} to the default calibration value (${(0.005).toFixed(6)} mL/ms). This cannot be undone.`);
+    `This puts Pump ${pump} back to the default flow rate (${(DEFAULT_ML_PER_MS * 1000).toFixed(2)} mL/s). This cannot be undone.`);
   if (!ok) return;
   try {
     await api('POST', '/api/calibration/reset', { pump });
@@ -565,61 +588,55 @@ async function accords() {
   try {
     const d = await api('GET', '/api/accords');
     State.accords = d.accords || [];
+    State.warnPct = d.warn_pct;
   } catch {}
 
-  const rows = State.accords.map(a => {
-    const pct     = Math.round(a.percent);
-    const fillCls = pct <= 20 ? 'error' : pct <= 40 ? 'warn' : '';
-    return `<tr>
-      <td><strong>Pump ${a.pump}</strong></td>
-      <td>${esc(a.name) || '<span class="text-muted">—</span>'}</td>
-      <td>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div class="progress-bar" style="width:100px;"><div class="fill ${fillCls}" style="width:${pct}%"></div></div>
-          <span style="font-size:0.82rem;color:var(--text-dim)">${a.remaining_ml.toFixed(1)} / ${a.capacity_ml.toFixed(0)} mL (${pct}%)</span>
-          ${a.low_liquid ? '<span style="color:var(--warn);font-size:0.8rem">⚠ Low</span>' : ''}
-        </div>
-      </td>
-      <td>
-        <button class="btn btn-ghost btn-sm" onclick="editAccord(${a.pump})">✏ Edit</button>
-        <button class="btn btn-success btn-sm" onclick="refillAccord(${a.pump})">↑ Refill</button>
-      </td>
-    </tr>`;
+  const tiles = State.accords.map(a => {
+    const pct = clampPct(a.percent);
+    return `<div class="tile accord-tile ${a.low_liquid ? 'low' : ''}">
+      <div class="tile-head">
+        <span class="tile-kicker">Pump ${a.pump}</span>
+        ${a.low_liquid ? '<span class="chip chip-warn">⚠ Low</span>' : ''}
+      </div>
+      <div class="tile-name">${esc(a.name) || '<span class="text-muted">Unassigned</span>'}</div>
+      <div class="tile-figure">${a.remaining_ml.toFixed(1)}<small> mL</small></div>
+      <div class="level"><div class="level-fill" style="width:${pct}%"></div></div>
+      <div class="tile-sub">${pct}% of ${a.capacity_ml.toFixed(0)} mL</div>
+      <div class="tile-actions">
+        <button class="btn btn-ghost" onclick="editAccord(${a.pump})">✏ Edit</button>
+        <button class="btn btn-success" onclick="refillAccord(${a.pump})">↑ Refill</button>
+      </div>
+    </div>`;
   }).join('');
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header">
-      <div><h1 class="page-title">Accords</h1><p class="page-sub">Monitor and manage accord containers</p></div>
+      <div><h1 class="page-title">Accords</h1>
+        <p class="page-sub">What's loaded in each container and how much is left. Containers are flagged below ${State.warnPct ?? 20}%.</p></div>
     </div>
-    <div class="card">
-      <div class="card-title">Container Status</div>
-      <div style="overflow-x:auto;">
-        <table class="data-table">
-          <thead><tr><th>Pump</th><th>Accord Name</th><th>Level</th><th>Actions</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    </div>
+    <div class="tile-grid">${tiles}</div>
 
-    <!-- Edit accordion (hidden by default) -->
-    <div id="accord-edit-panel" class="card hidden">
-      <div class="card-title">Edit Accord — Pump <span id="edit-pump-num">—</span></div>
-      <div style="display:grid;gap:14px;max-width:400px;">
+    <div class="modal-overlay hidden" id="accord-edit-panel" onclick="if(event.target===this)this.classList.add('hidden')">
+      <div class="modal">
+        <h3>Edit Pump <span id="edit-pump-num">—</span></h3>
+        <p>Name the accord loaded in this container and correct its level.</p>
         <div class="form-group">
-          <label class="form-label">Accord Name</label>
-          <input class="form-input" type="text" id="edit-name" placeholder="e.g. Rose, Sandalwood"/>
+          <label class="form-label" for="edit-name">Accord name</label>
+          <input class="form-input" type="text" id="edit-name" maxlength="32" placeholder="e.g. Rose, Sandalwood"/>
         </div>
-        <div class="form-group">
-          <label class="form-label">Remaining mL</label>
-          <input class="form-input" type="number" id="edit-remaining" min="0" step="0.1"/>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="edit-remaining">Remaining (mL)</label>
+            <input class="form-input" type="number" id="edit-remaining" min="0" step="0.1"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="edit-capacity">Capacity (mL)</label>
+            <input class="form-input" type="number" id="edit-capacity" min="1" step="1"/>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Container Capacity (mL)</label>
-          <input class="form-input" type="number" id="edit-capacity" min="1" step="1"/>
-        </div>
-        <div style="display:flex;gap:10px;">
-          <button class="btn btn-primary" onclick="saveAccordEdit()">Save Changes</button>
+        <div class="modal-actions">
           <button class="btn btn-ghost" onclick="document.getElementById('accord-edit-panel').classList.add('hidden')">Cancel</button>
+          <button class="btn btn-primary" onclick="saveAccordEdit()">Save changes</button>
         </div>
       </div>
     </div>`;
@@ -633,9 +650,10 @@ function editAccord(pump) {
   document.getElementById('edit-name').value      = a.name || '';
   document.getElementById('edit-remaining').value = a.remaining_ml.toFixed(1);
   document.getElementById('edit-capacity').value  = a.capacity_ml.toFixed(0);
-  document.getElementById('accord-edit-panel').dataset.pump = pump;
-  document.getElementById('accord-edit-panel').classList.remove('hidden');
-  document.getElementById('accord-edit-panel').scrollIntoView({behavior:'smooth'});
+  const panel = document.getElementById('accord-edit-panel');
+  panel.dataset.pump = pump;
+  panel.classList.remove('hidden');
+  document.getElementById('edit-name').focus();
 }
 
 async function saveAccordEdit() {
@@ -669,7 +687,8 @@ async function refillAccord(pump) {
   try {
     await api('POST', '/api/accords/refill', { pump });
     toast(`Pump ${pump} refilled`, 'success');
-    accords();
+    await pollStatus();
+    renderPage();  // also used from the dashboard, so re-render whichever page is open
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -884,6 +903,35 @@ async function settings() {
   document.getElementById('page-content').innerHTML = `
     <div class="page-header"><div><h1 class="page-title">Settings</h1><p class="page-sub">Configure device behaviour</p></div></div>
 
+    <!-- Wi-Fi -->
+    <div class="card">
+      <div class="card-title">Wi-Fi</div>
+      ${renderCurrentNetwork()}
+      <div class="card-title-row" style="margin-top:26px">
+        <div class="card-title">Saved networks</div>
+        <button class="btn btn-ghost btn-sm" id="scan-btn" onclick="loadSavedNetworks(true)">⟳ Scan nearby</button>
+      </div>
+      <div id="saved-nets"><div class="empty-mini">Loading…</div></div>
+      <details class="join-other">
+        <summary>Join a new network</summary>
+        <div style="display:grid;gap:10px;max-width:420px;margin-top:14px;">
+          <div class="form-group">
+            <label class="form-label">Network name (SSID)</label>
+            <div style="display:flex;gap:8px;">
+              <select class="form-select" id="s-ssid"><option value="">— Select or enter manually —</option></select>
+              <button class="btn btn-ghost btn-sm" onclick="wifiScan()">⟳ Scan</button>
+            </div>
+            <input class="form-input" type="text" id="s-ssid-manual" placeholder="Or enter manually" style="margin-top:8px;"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input class="form-input" type="password" id="s-wifi-pass" placeholder="Wi-Fi password"/>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="changeWifi()">Connect &amp; save</button>
+        </div>
+      </details>
+    </div>
+
     <!-- Device Info -->
     <div class="card">
       <div class="card-title">Device Information</div>
@@ -940,27 +988,6 @@ async function settings() {
       <button class="btn btn-primary btn-sm" onclick="saveSetting('accords',{low_liquid_warn_pct:+document.getElementById('s-low').value})">Save</button>
     </div>
 
-    <!-- Network Settings -->
-    <div class="card">
-      <div class="card-title">Network Settings</div>
-      <p class="text-muted" style="font-size:0.85rem;margin-bottom:14px;">Change the Wi-Fi network this device connects to.</p>
-      <div style="display:grid;gap:10px;max-width:360px;">
-        <div class="form-group">
-          <label class="form-label">SSID (Network Name)</label>
-          <div style="display:flex;gap:8px;">
-            <select class="form-select" id="s-ssid"><option value="">— Select or enter manually —</option></select>
-            <button class="btn btn-ghost btn-sm" onclick="wifiScan()">⟳ Scan</button>
-          </div>
-          <input class="form-input" type="text" id="s-ssid-manual" placeholder="Or enter manually" style="margin-top:8px;"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input class="form-input" type="password" id="s-wifi-pass" placeholder="Wi-Fi password"/>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="changeWifi()">Apply Network Change</button>
-      </div>
-    </div>
-
     <!-- Security Settings -->
     <div class="card">
       <div class="card-title">Security</div>
@@ -978,6 +1005,7 @@ async function settings() {
       <hr class="divider" style="margin:16px 0;"/>
       <button class="btn btn-danger btn-sm" onclick="logout()">Logout</button>
     </div>`;
+  loadSavedNetworks(true);
 }
 
 async function saveSetting(section, body) {
@@ -988,11 +1016,99 @@ async function saveSetting(section, body) {
   } catch(e) { toast(e.message, 'error'); }
 }
 
+function wifiBars(rssi) {
+  const n = !rssi ? 0 : rssi >= -50 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+  return `<span class="bars" title="${rssi ? rssi + ' dBm' : 'No signal'}">${[1,2,3,4].map(i => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</span>`;
+}
+
+function renderCurrentNetwork() {
+  const n = State.network;
+  if (n.wifi_state !== 'connected')
+    return `<div class="net-current"><div class="net-current-icon">${wifiBars(0)}</div>
+      <div><div class="tile-kicker">Not connected</div><div class="tile-name">${esc((n.wifi_state || 'offline').replace(/_/g, ' '))}</div></div></div>`;
+  return `<div class="net-current">
+    <div class="net-current-icon">${wifiBars(n.rssi)}</div>
+    <div class="net-current-text">
+      <div class="tile-kicker">Connected to</div>
+      <div class="tile-name">${esc(n.ssid)}</div>
+      <div class="tile-sub">${rssiLabel(n.rssi)} signal · ${n.rssi} dBm</div>
+    </div>
+    <dl class="net-facts">
+      <div><dt>IP address</dt><dd class="font-mono">${esc(n.ip)}</dd></div>
+      <div><dt>Address</dt><dd class="font-mono">${esc(n.mdns)}</dd></div>
+    </dl>
+  </div>`;
+}
+
+// Saved networks come from the device; "in range" comes from a scan (State.nearby)
+async function loadSavedNetworks(scan) {
+  const el = document.getElementById('saved-nets');
+  if (!el) return;
+  if (State.role !== 'admin') {
+    el.innerHTML = `<div class="empty-mini">Log in to see and switch between saved networks. <a href="#" class="link" onclick="showLoginModal();return false;">Login</a></div>`;
+    return;
+  }
+  const btn = document.getElementById('scan-btn');
+  if (scan && btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+  try {
+    const [saved, nearby] = await Promise.all([
+      api('GET', '/api/wifi/saved'),
+      scan ? api('GET', '/api/wifi/scan').catch(e => { toast('Scan failed: ' + e.message, 'error'); return null; }) : null,
+    ]);
+    if (nearby) State.nearby = nearby.networks;
+    const near = {};
+    (State.nearby || []).forEach(n => { if (!(n.ssid in near) || n.rssi > near[n.ssid]) near[n.ssid] = n.rssi; });
+
+    el.innerHTML = !saved.networks.length ? '<div class="empty-mini">No saved networks yet.</div>' :
+      `<ul class="row-list">${saved.networks.map(ssid => {
+        const current = State.network.wifi_state === 'connected' && ssid === State.network.ssid;
+        const rssi = current ? State.network.rssi : near[ssid];
+        const status = current ? 'Connected now'
+                     : rssi !== undefined ? `In range · ${rssiLabel(rssi)} signal`
+                     : State.nearby ? 'Not in range' : 'Scan to check if it’s nearby';
+        return `<li class="row-item net-row ${current ? 'current' : rssi === undefined && State.nearby ? 'away' : ''}">
+          ${wifiBars(rssi)}
+          <div class="row-text"><strong>${esc(ssid)}</strong><span>${status}</span></div>
+          ${current ? '<span class="chip chip-ok">✓ Connected</span>'
+                    : `<button class="btn btn-primary btn-sm" data-ssid="${esc(ssid)}" onclick="switchNetwork(this.dataset.ssid)">Connect</button>`}
+          <button class="btn btn-ghost btn-sm btn-icon" data-ssid="${esc(ssid)}" onclick="forgetNetwork(this.dataset.ssid)" title="Forget this network" aria-label="Forget ${esc(ssid)}">✕</button>
+        </li>`;
+      }).join('')}</ul>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty-mini">${esc(e.message)}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⟳ Scan nearby'; }
+  }
+}
+
+async function switchNetwork(ssid) {
+  if (!requireAdmin()) return;
+  const ok = await confirm(`Switch to "${ssid}"?`,
+    `The device will leave its current network. Connect this computer to "${ssid}" too, then open neuroscent.local again. If it can't connect within 15 s, the device starts the NeuroScent-Setup hotspot.`, false);
+  if (!ok) return;
+  try {
+    await api('POST', '/api/wifi/connect', { ssid, saved: true });
+    toast(`Switching to ${ssid}…`, 'info', 8000);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function forgetNetwork(ssid) {
+  if (!requireAdmin()) return;
+  const ok = await confirm(`Forget "${ssid}"?`, 'The device will no longer remember this network or its password.');
+  if (!ok) return;
+  try {
+    await api('POST', '/api/wifi/forget', { ssid });
+    toast(`Forgot ${ssid}`, 'info');
+    loadSavedNetworks(false);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 async function wifiScan() {
   const sel = document.getElementById('s-ssid');
   if (sel) { sel.innerHTML = '<option>Scanning…</option>'; }
   try {
     const d = await api('GET', '/api/wifi/scan');
+    State.nearby = d.networks;
     if (sel) {
       sel.innerHTML = '<option value="">— Select network —</option>' +
         d.networks.sort((a,b)=>b.rssi-a.rssi).map(n=>`<option value="${esc(n.ssid)}">${n.secure?'🔒 ':''} ${esc(n.ssid)} (${n.rssi}dBm)</option>`).join('');

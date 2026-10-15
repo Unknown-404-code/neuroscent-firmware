@@ -87,6 +87,8 @@ private:
   // ---- Wi-Fi scan ----
   static void handleApiWifiScan();
   static void handleApiWifiConnect();
+  static void handleApiWifiSaved();
+  static void handleApiWifiForget();
 
   // ---- Helpers ----
   static void sendCors();
