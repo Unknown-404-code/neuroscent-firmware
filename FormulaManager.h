@@ -7,7 +7,7 @@
 
 struct FormulaStep {
   uint8_t pumpIndex;
-  uint8_t percent;
+  float percent;
   float requiredMl;
   unsigned long requiredMs;
 };
@@ -26,7 +26,7 @@ public:
 private:
   static int formulaId;
   static String formulaName;
-  static uint8_t containerMl;
+  static uint16_t containerMl;
 
   static FormulaStep steps[MAX_FORMULA_STEPS];
   static uint8_t numSteps;

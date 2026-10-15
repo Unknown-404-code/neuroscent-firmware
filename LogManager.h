@@ -58,6 +58,9 @@ public:
   // Serialise entry to JSON string (caller manages buffer)
   static String entryToJson(const LogEntry& entry);
 
+  // Escape a string for use inside JSON quotes (control chars become spaces)
+  static String jsonEscape(const String& s);
+
 private:
   static const uint16_t MAX_LOG_ENTRIES = 200;
 

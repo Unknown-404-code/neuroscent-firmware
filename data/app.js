@@ -30,10 +30,21 @@ async function api(method, path, body) {
     opts.body = JSON.stringify(body);
   }
   const res = await fetch(path, opts);
+  if (res.status === 401 && State.role === 'admin') { State.role = 'guest'; updateAuthUI(); }
   let data;
   try { data = await res.json(); } catch { data = { status: 'error', message: 'Invalid response' }; }
   if (!res.ok && data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
   return data;
+}
+
+// Escape text from the device (names, SSIDs, logs) before putting it in HTML
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Replace an element's HTML only when it changed, so running animations don't restart every poll
+function setHtml(el, html) {
+  if (el && el._html !== html) { el.innerHTML = html; el._html = html; }
 }
 
 // ---- Toast notifications ----
@@ -42,7 +53,7 @@ function toast(msg, type = 'info', duration = 4000) {
   const icons = { success: '✓', error: '✕', info: 'ℹ' };
   const t = document.createElement('div');
   t.className = `toast ${type}`;
-  t.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${msg}</span>`;
+  t.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${esc(msg)}</span>`;
   c.appendChild(t);
   setTimeout(() => {
     t.classList.add('fadeout');
@@ -153,10 +164,18 @@ async function pollStatus() {
     State.network = network;
     State.pumps   = pumps.pumps || [];
     State.formula = formula;
-    updateTopbar();
-    if (['dashboard', 'pumps', 'accords'].includes(State.page)) {
-      updatePageLive();
+
+    // Firmware is the source of truth (survives reloads and firmware timeouts)
+    const wasBusy = State.purgeRunning || State.calibRunning;
+    State.purgeRunning = status.state === 'web_purging';
+    State.calibRunning = status.state === 'web_calibrating';
+    if (State.purgeRunning || State.calibRunning) {
+      State.activePump = status.running_pump + 1;
+      if (!wasBusy) State.calibStartMs = Date.now();
     }
+
+    updateTopbar();
+    updatePageLive();
   } catch (e) {
     console.warn('Poll error:', e.message);
     updateTopbarDisconnected();
@@ -196,8 +215,10 @@ function renderPage() {
 
 // ---- Live updates (partial re-renders during polling) ----
 function updatePageLive() {
-  if (State.page === 'dashboard') dashboard_update();
-  if (State.page === 'pumps')     pumps_update();
+  if (State.page === 'dashboard')   dashboard_update();
+  if (State.page === 'pumps')       pumps_update();
+  if (State.page === 'calibration') calibration_update();
+  if (State.page === 'formula')     formulaStatusRender(State.formula);
 }
 
 // ==============================================================
@@ -239,7 +260,7 @@ async function dashboard() {
       </div>
       <div class="stat-card">
         <div class="stat-label">Wi-Fi</div>
-        <div class="stat-value" style="font-size:1rem" id="d-wifi">${State.network.ssid || State.network.wifi_state || '—'}</div>
+        <div class="stat-value" style="font-size:1rem" id="d-wifi">${esc(State.network.ssid || State.network.wifi_state || '—')}</div>
         <div class="stat-sub" id="d-ip">${State.network.ip || ''}</div>
       </div>
       <div class="stat-card">
@@ -306,31 +327,29 @@ function dashboard_update() {
   if (dWifi)  dWifi.textContent = State.network.ssid || State.network.wifi_state || '—';
   if (dIp)    dIp.textContent = State.network.ip || '';
   if (dRssi)  dRssi.textContent = State.network.rssi ? State.network.rssi + ' dBm' : '—';
-  if (dPumps) dPumps.innerHTML = State.pumps.map(renderPumpCard).join('');
+  setHtml(dPumps, State.pumps.map(renderPumpCard).join(''));
 
   if (fSec) fSec.classList.toggle('hidden', State.formula.formula_state === 'idle');
   if (fBar) fBar.style.width = (State.formula.step_progress || 0) + '%';
   if (fPct) fPct.textContent = State.formula.step_progress || 0;
-  if (fPump && State.formula.running_pump >= 0)
-    fPump.textContent = 'Pump ' + (State.formula.running_pump + 1);
+  if (fPump) fPump.textContent = State.formula.running_pump >= 0 ? 'Pump ' + (State.formula.running_pump + 1) : '';
 }
 
 function renderPumpCard(p) {
   const pct  = Math.round(p.percent);
   const cls  = p.running ? 'running' : p.low_liquid ? 'low' : '';
   const indCls = p.running ? 'on' : p.low_liquid ? 'low' : '';
-  const fillCls = pct <= 20 ? 'error' : pct <= 40 ? 'warn' : '';
   return `<div class="pump-card ${cls}">
-    <div class="pump-header">
-      <div>
+    <div class="vial"><div class="liquid" style="height:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
+    <div class="pump-info">
+      <div class="pump-header">
         <div class="pump-num">Pump ${p.pump}</div>
-        <div class="pump-name">${p.name || 'Unassigned'}</div>
+        <div class="pump-indicator ${indCls}"></div>
       </div>
-      <div class="pump-indicator ${indCls}"></div>
+      <div class="pump-name">${esc(p.name) || 'Unassigned'}</div>
+      <div class="pump-ml">${p.remaining_ml.toFixed(1)} / ${p.capacity_ml.toFixed(0)} mL · ${pct}%</div>
+      ${p.low_liquid ? '<div class="pump-warn">⚠ Low liquid</div>' : p.running ? '<div class="pump-warn" style="color:var(--accent)">● Pumping</div>' : ''}
     </div>
-    <div class="pump-ml">${p.remaining_ml.toFixed(1)} / ${p.capacity_ml.toFixed(0)} mL</div>
-    <div class="progress-bar"><div class="fill ${fillCls}" style="width:${pct}%"></div></div>
-    ${p.low_liquid ? '<div style="font-size:0.75rem;color:var(--warn);margin-top:4px;">⚠ Low liquid</div>' : ''}
   </div>`;
 }
 
@@ -339,8 +358,8 @@ function renderAccordBars(accords) {
     const pct = Math.round(a.percent);
     const fillCls = pct <= 20 ? 'error' : pct <= 40 ? 'warn' : '';
     return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
-      <div style="width:72px;font-size:0.82rem;color:var(--text-muted);flex-shrink:0">
-        P${a.pump} ${a.name ? '<span style="color:var(--text-dim)">'+a.name+'</span>' : ''}
+      <div style="width:150px;font-size:0.82rem;color:var(--text-muted);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        P${a.pump} ${a.name ? '<span style="color:var(--text-dim)">'+esc(a.name)+'</span>' : ''}
       </div>
       <div class="progress-bar" style="flex:1"><div class="fill ${fillCls}" style="width:${pct}%"></div></div>
       <div style="width:56px;text-align:right;font-size:0.82rem;color:var(--text-dim)">${a.remaining_ml.toFixed(1)} mL</div>
@@ -391,7 +410,8 @@ async function pumps() {
 
 function pumps_update() {
   const grid = document.getElementById('pumps-grid');
-  if (grid) grid.innerHTML = State.pumps.map(renderPumpCard).join('');
+  setHtml(grid, State.pumps.map(renderPumpCard).join(''));
+  updatePurgeUI();
   updatePurgeElapsed();
 }
 
@@ -490,17 +510,19 @@ async function calibration() {
         </table>
       </div>
     </div>`;
-  updateCalibTimer();
+  calibration_update();
 }
 
-let _calibTimerHandle = null;
-function updateCalibTimer() {
-  clearInterval(_calibTimerHandle);
-  if (!State.calibRunning) return;
-  _calibTimerHandle = setInterval(() => {
-    const el = document.getElementById('calib-elapsed');
-    if (el) el.textContent = Math.round((Date.now() - State.calibStartMs) / 1000) + 's';
-  }, 500);
+function calibration_update() {
+  const msg = document.getElementById('calib-active-msg');
+  if (!msg) return;
+  msg.classList.toggle('hidden', !State.calibRunning);
+  document.getElementById('calib-active-pump').textContent = State.activePump;
+  document.getElementById('calib-elapsed').textContent =
+    Math.round((Date.now() - State.calibStartMs) / 1000) + 's';
+  document.querySelectorAll('[id^="calib-stop-"]').forEach(b => {
+    b.style.display = State.calibRunning && b.id === `calib-stop-${State.activePump}` ? 'inline-flex' : 'none';
+  });
 }
 
 async function startCalib(pump) {
@@ -510,14 +532,7 @@ async function startCalib(pump) {
     State.calibRunning = true;
     State.activePump   = pump;
     State.calibStartMs = Date.now();
-    const msg = document.getElementById('calib-active-msg');
-    const pumpEl = document.getElementById('calib-active-pump');
-    if (msg) { msg.classList.remove('hidden'); }
-    if (pumpEl) pumpEl.textContent = pump;
-    // Show stop button for this pump
-    const stopBtn = document.getElementById(`calib-stop-${pump}`);
-    if (stopBtn) stopBtn.style.display = 'inline-flex';
-    updateCalibTimer();
+    calibration_update();
     toast(`Calibration started — Pump ${pump}`, 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -526,13 +541,13 @@ async function stopCalib() {
   try {
     const d = await api('POST', '/api/calibration/stop');
     State.calibRunning = false;
-    clearInterval(_calibTimerHandle);
     toast(`Pump ${d.pump} calibrated: ${d.ml_per_s.toFixed(4)} mL/s`, 'success', 6000);
     calibration(); // Refresh page
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function resetCalib(pump) {
+  if (!requireAdmin()) return;
   const ok = await confirm(`Reset Pump ${pump} Calibration?`,
     `This will reset Pump ${pump} to the default calibration value (${(0.005).toFixed(6)} mL/ms). This cannot be undone.`);
   if (!ok) return;
@@ -557,7 +572,7 @@ async function accords() {
     const fillCls = pct <= 20 ? 'error' : pct <= 40 ? 'warn' : '';
     return `<tr>
       <td><strong>Pump ${a.pump}</strong></td>
-      <td>${a.name || '<span class="text-muted">—</span>'}</td>
+      <td>${esc(a.name) || '<span class="text-muted">—</span>'}</td>
       <td>
         <div style="display:flex;align-items:center;gap:10px;">
           <div class="progress-bar" style="width:100px;"><div class="fill ${fillCls}" style="width:${pct}%"></div></div>
@@ -628,10 +643,19 @@ async function saveAccordEdit() {
   const name = document.getElementById('edit-name').value.trim();
   const rem  = parseFloat(document.getElementById('edit-remaining').value);
   const cap  = parseFloat(document.getElementById('edit-capacity').value);
+  const old  = State.accords.find(x => x.pump === pump);
+  if (!requireAdmin()) return;
+  if (!(cap >= 1) || !(rem >= 0) || rem > cap) { toast('Remaining must be between 0 and the capacity', 'error'); return; }
   try {
-    if (name !== '') await api('POST', '/api/accords/name',     { pump, name });
-    await api('POST', '/api/accords/capacity', { pump, capacity_ml: cap });
-    await api('POST', '/api/accords/set',      { pump, remaining_ml: rem });
+    await api('POST', '/api/accords/name', { pump, name });
+    // Firmware rejects remaining > capacity at every step, so order matters when shrinking
+    if (old && cap < old.capacity_ml) {
+      await api('POST', '/api/accords/set',      { pump, remaining_ml: rem });
+      await api('POST', '/api/accords/capacity', { pump, capacity_ml: cap });
+    } else {
+      await api('POST', '/api/accords/capacity', { pump, capacity_ml: cap });
+      await api('POST', '/api/accords/set',      { pump, remaining_ml: rem });
+    }
     toast('Accord updated', 'success');
     accords();
   } catch(e) { toast(e.message, 'error'); }
@@ -660,7 +684,7 @@ async function formula() {
         <p class="page-sub">Build and submit test formulas. Physical confirmation on the device is required before dispensing.</p>
       </div>
     </div>
-    <div style="display:grid;gap:18px;grid-template-columns:1fr 1fr;">
+    <div class="formula-grid">
       <div class="card">
         <div class="card-title">Formula Builder</div>
         <div class="form-group">
@@ -774,14 +798,18 @@ async function formulaSubmit() {
 
 async function formulaStatusPoll() {
   try {
-    const d = await api('GET', '/api/formula/status');
-    State.formula = d;
+    State.formula = await api('GET', '/api/formula/status');
+    formulaStatusRender(State.formula);
+  } catch {}
+}
+
+function formulaStatusRender(d) {
     const el = document.getElementById('formula-status-panel');
-    if (!el) return;
+    if (!el || !d.formula_state) return;
     if (d.formula_state === 'idle') {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">🧪</div><h3>No active formula</h3><p>Submit a formula using the builder. Confirm on the device when prompted.</p></div>`;
+      setHtml(el, `<div class="empty-state"><div class="empty-icon">🧪</div><h3>No active formula</h3><p>Submit a formula using the builder. Confirm on the device when prompted.</p></div>`);
     } else {
-      el.innerHTML = `
+      setHtml(el, `
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div><span class="state-badge ${stateClass(d.formula_state)}">${dot(d.formula_state)} ${d.formula_state.replace(/_/g,' ')}</span></div>
           ${d.formula_state==='awaiting_confirmation' ? '<p style="color:var(--warn);font-size:0.88rem;">⚠ Press SELECT on the device to confirm dispensing.</p>' : ''}
@@ -791,9 +819,8 @@ async function formulaStatusPoll() {
               <div class="progress-bar"><div class="fill" style="width:${d.step_progress||0}%"></div></div>
               <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">${d.step_progress||0}% • Pump ${(d.running_pump||0)+1}</div>
             </div>` : ''}
-        </div>`;
+        </div>`);
     }
-  } catch {}
 }
 
 // ==============================================================
@@ -826,9 +853,9 @@ async function fetchLogs() {
       <tbody>${d.logs.map(l=>`<tr class="${sevClass[l.severity]||''}">
         <td class="font-mono" style="white-space:nowrap">${l.uptime}</td>
         <td><span class="log-sev ${sevClass[l.severity]||''}">${l.severity}</span></td>
-        <td style="font-size:0.8rem">${l.event}</td>
+        <td style="font-size:0.8rem">${esc(l.event)}</td>
         <td>${l.pump>=0?'P'+(l.pump+1):'—'}</td>
-        <td>${l.description}</td>
+        <td>${esc(l.description)}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
   } catch(e) {
@@ -841,7 +868,7 @@ async function clearLogs() {
   const ok = await confirm('Clear All Logs?', 'This will permanently delete all activity logs. This cannot be undone.');
   if (!ok) return;
   try {
-    await fetch('/api/logs/clear', {method:'DELETE'});
+    await api('DELETE', '/api/logs/clear');
     toast('Logs cleared', 'info');
     fetchLogs();
   } catch(e) { toast(e.message, 'error'); }
@@ -968,7 +995,7 @@ async function wifiScan() {
     const d = await api('GET', '/api/wifi/scan');
     if (sel) {
       sel.innerHTML = '<option value="">— Select network —</option>' +
-        d.networks.sort((a,b)=>b.rssi-a.rssi).map(n=>`<option value="${n.ssid}">${n.secure?'🔒 ':''} ${n.ssid} (${n.rssi}dBm)</option>`).join('');
+        d.networks.sort((a,b)=>b.rssi-a.rssi).map(n=>`<option value="${esc(n.ssid)}">${n.secure?'🔒 ':''} ${esc(n.ssid)} (${n.rssi}dBm)</option>`).join('');
     }
   } catch(e) { toast('Scan failed: ' + e.message, 'error'); }
 }
@@ -983,7 +1010,7 @@ async function changeWifi() {
   if (!ok) return;
   try {
     await api('POST', '/api/wifi/connect', { ssid, password: pass });
-    toast('Connecting to ' + ssid + '… check Network page for status', 'info', 8000);
+    toast('Connecting to ' + ssid + '… watch the Wi-Fi status in the top bar', 'info', 8000);
   } catch(e) { toast(e.message, 'error'); }
 }
 

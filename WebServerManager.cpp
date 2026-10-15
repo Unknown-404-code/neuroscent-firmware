@@ -20,6 +20,7 @@ int8_t WebServerManager::webPumpIndex     = -1;
 unsigned long WebServerManager::webOpStartTime = 0;
 bool WebServerManager::webPurging         = false;
 bool WebServerManager::webCalibrating     = false;
+unsigned long WebServerManager::webTestMs = 0;
 
 // --------------------------------------------------------
 // Init
@@ -109,6 +110,14 @@ void WebServerManager::init() {
 void WebServerManager::update() {
   server.handleClient();
 
+  // Timed web pump test finished
+  if (webPurging && webTestMs > 0 && millis() - webOpStartTime >= webTestMs) {
+    int8_t pump = webPumpIndex;
+    stopWebPurge();
+    LogManager::log(LogEvent::PUMP_TEST_COMPLETE, LogSeverity::INFO,
+                    "Web pump test complete", pump);
+  }
+
   // Safety timeout for web purge
   if (webPurging && webPumpIndex >= 0) {
     unsigned long maxMs = (unsigned long)StorageManager::getMaxPurgeDurationS() * 1000UL;
@@ -125,12 +134,10 @@ void WebServerManager::update() {
     unsigned long maxMs = (unsigned long)StorageManager::getCalibTimeoutS() * 1000UL;
     if (millis() - webOpStartTime >= maxMs) {
       Serial.println("[Web] Calibration timeout — stopping pump " + String(webPumpIndex + 1));
-      PumpManager::stopPump(webPumpIndex);
-      webCalibrating = false;
-      webPumpIndex   = -1;
-      OperationState::release();
+      int8_t pump = webPumpIndex;
+      stopWebCalib();
       LogManager::log(LogEvent::CALIB_UPDATED, LogSeverity::WARN,
-                      "Calibration timed out (not saved)", webPumpIndex);
+                      "Calibration timed out (not saved)", pump);
     }
   }
 }
@@ -143,7 +150,16 @@ bool WebServerManager::isWebPurging()    { return webPurging; }
 bool WebServerManager::isWebCalibrating(){ return webCalibrating; }
 
 void WebServerManager::stopWebPurge() {
-  if (webPumpIndex >= 0) PumpManager::stopPump(webPumpIndex);
+  if (webPumpIndex >= 0) {
+    PumpManager::stopPump(webPumpIndex);
+    // Pump tests track liquid used (capped at the target); plain purges don't
+    if (webTestMs > 0) {
+      unsigned long ranMs = min(millis() - webOpStartTime, webTestMs);
+      StorageManager::dispenseFromContainer(
+          webPumpIndex, ranMs * StorageManager::getCalibration(webPumpIndex));
+    }
+  }
+  webTestMs    = 0;
   webPurging   = false;
   webPumpIndex = -1;
   OperationState::release();
@@ -171,11 +187,11 @@ void WebServerManager::sendJson(int code, const String& json) {
 }
 
 void WebServerManager::sendError(int code, const String& message) {
-  sendJson(code, "{\"status\":\"error\",\"message\":\"" + message + "\"}");
+  sendJson(code, "{\"status\":\"error\",\"message\":\"" + LogManager::jsonEscape(message) + "\"}");
 }
 
 void WebServerManager::sendOk(const String& message) {
-  sendJson(200, "{\"status\":\"ok\",\"message\":\"" + message + "\"}");
+  sendJson(200, "{\"status\":\"ok\",\"message\":\"" + LogManager::jsonEscape(message) + "\"}");
 }
 
 String WebServerManager::getBodyArg() {
@@ -275,11 +291,27 @@ void WebServerManager::handleStaticFile() {
 }
 
 void WebServerManager::handleNotFound() {
-  // For SPA routing — serve index.html for unknown paths that don't start with /api
   String uri = server.uri();
-  if (!uri.startsWith("/api/") && !uri.startsWith("/dispense")) {
-    if (serveFromLittleFS("/index.html")) return;
+
+  // Never redirect unknown API requests to HTML.
+  if (uri.startsWith("/api/") || uri.startsWith("/dispense")) {
+    sendError(404, "Not found");
+    return;
   }
+
+  // First, try serving the actual requested file from LittleFS.
+  if (serveFromLittleFS(uri)) {
+    return;
+  }
+
+  // Only fall back to index.html for browser navigation routes.
+  // Missing CSS, JS, images, etc. must return 404.
+  // In setup (AP) mode this also makes captive-portal probes land on setup.html.
+  if (server.method() == HTTP_GET && uri.indexOf('.') == -1) {
+    handleRoot();
+    return;
+  }
+
   sendError(404, "Not found");
 }
 
@@ -287,8 +319,7 @@ void WebServerManager::handleNotFound() {
 // Legacy /dispense endpoint (preserved for AI backend)
 // --------------------------------------------------------
 void WebServerManager::handleDispense() {
-  // Check system busy via UIManager (existing gate)
-  if (UIManager::getState() != UIState::MAIN_MENU) {
+  if (UIManager::getState() != UIState::MAIN_MENU || !OperationState::isIdle()) {
     sendError(503, "System is busy");
     return;
   }
@@ -425,7 +456,7 @@ void WebServerManager::handleApiNetwork() {
     "\"rssi\":%d,"
     "\"uptime_s\":%lu}",
     stateStr.c_str(),
-    WiFiProvisioning::getSSID().c_str(),
+    LogManager::jsonEscape(WiFiProvisioning::getSSID()).c_str(),
     WiFiProvisioning::getLocalIP().c_str(),
     WiFiProvisioning::getMdnsHostname().c_str(),
     WiFiProvisioning::getRssi(),
@@ -469,7 +500,7 @@ void WebServerManager::handleApiPumps() {
     snprintf(buf, sizeof(buf),
       "{\"pump\":%d,\"name\":\"%s\",\"running\":%s,"
       "\"remaining_ml\":%.2f,\"capacity_ml\":%.2f,\"percent\":%.1f,\"low_liquid\":%s}",
-      i + 1, name.c_str(),
+      i + 1, LogManager::jsonEscape(name).c_str(),
       (PumpManager::getRunningPump() == i) ? "true" : "false",
       rem, cap, pct, low ? "true" : "false"
     );
@@ -574,11 +605,7 @@ void WebServerManager::handleApiPumpTest() {
   webPumpIndex   = pumpIdx;
   webOpStartTime = millis();
   webPurging     = true;
-
-  // Override max purge time with test duration (+ 1s safety margin)
-  // The timeout in update() uses StorageManager::getMaxPurgeDurationS()
-  // For tests we cap at calculated duration via the response + JS stop
-  // Firmware will stop at max_purge_s as hard safety
+  webTestMs      = durationMs;  // update() stops the pump when this elapses
 
   LogManager::log(LogEvent::PUMP_TEST_START, LogSeverity::INFO,
                   "Web pump test started", pumpIdx);
@@ -719,7 +746,7 @@ void WebServerManager::handleApiAccords() {
     snprintf(buf, sizeof(buf),
       "{\"pump\":%d,\"name\":\"%s\",\"remaining_ml\":%.2f,"
       "\"capacity_ml\":%.2f,\"percent\":%.1f,\"low_liquid\":%s}",
-      i + 1, name.c_str(), rem, cap, pct, low ? "true" : "false");
+      i + 1, LogManager::jsonEscape(name).c_str(), rem, cap, pct, low ? "true" : "false");
     if (i > 0) json += ",";
     json += buf;
   }
@@ -833,7 +860,7 @@ void WebServerManager::handleApiFormulaSubmit() {
   if (!AuthManager::requireAdmin(server)) return;
 
   // Check busy state (same as /dispense)
-  if (UIManager::getState() != UIState::MAIN_MENU) {
+  if (UIManager::getState() != UIState::MAIN_MENU || !OperationState::isIdle()) {
     sendError(503, "System is busy — formula requires OLED confirmation, try again when idle");
     return;
   }
@@ -985,7 +1012,7 @@ void WebServerManager::handleApiWifiScan() {
     char buf[128];
     snprintf(buf, sizeof(buf),
       "{\"ssid\":\"%s\",\"rssi\":%d,\"secure\":%s}",
-      WiFi.SSID(i).c_str(), WiFi.RSSI(i),
+      LogManager::jsonEscape(WiFi.SSID(i)).c_str(), WiFi.RSSI(i),
       (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) ? "true" : "false");
     if (i > 0) json += ",";
     json += buf;
@@ -996,7 +1023,8 @@ void WebServerManager::handleApiWifiScan() {
 }
 
 void WebServerManager::handleApiWifiConnect() {
-  if (!AuthManager::requireAdmin(server)) return;
+  // The setup page runs before any login exists; the AP's own password guards it.
+  if (!WiFiProvisioning::isApActive() && !AuthManager::requireAdmin(server)) return;
 
   // Wi-Fi changes not allowed during dispensing
   if (OperationState::isDispensingOrPending()) {
@@ -1016,7 +1044,7 @@ void WebServerManager::handleApiWifiConnect() {
                     "Wi-Fi connection initiated: " + ssid);
     sendJson(200,
       "{\"status\":\"ok\",\"message\":\"Connecting to network. "
-      "Check /api/network for status.\",\"ssid\":\"" + ssid + "\"}");
+      "Check /api/network for status.\",\"ssid\":\"" + LogManager::jsonEscape(ssid) + "\"}");
   } else {
     sendError(400, "Failed to initiate connection");
   }

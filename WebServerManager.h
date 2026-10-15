@@ -27,6 +27,7 @@ private:
   static unsigned long webOpStartTime;  // millis() when operation started
   static bool webPurging;
   static bool webCalibrating;
+  static unsigned long webTestMs;       // >0 while a timed web pump test runs
 
   // ---- Static file serving ----
   static void handleRoot();

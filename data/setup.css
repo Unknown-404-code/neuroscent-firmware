@@ -1,16 +1,27 @@
 :root {
-  --bg: #0a0c14;
-  --surface: #111827;
-  --surface2: #1a2035;
-  --border: #1e2d4a;
-  --accent: #3b82f6;
-  --accent-glow: rgba(59,130,246,0.25);
-  --accent-dark: #2563eb;
-  --text: #e2e8f0;
-  --text-muted: #64748b;
-  --success: #10b981;
-  --error: #ef4444;
-  --warn: #f59e0b;
+  --bg:           #0e0b0f;
+  --surface:      #17131a;
+  --surface2:     #201a24;
+  --surface3:     #2a2230;
+  --border:       #2e2533;
+  --border-light: #3d3243;
+  --accent-rgb:   214,161,87;   /* parfum gold */
+  --accent2-rgb:  199,125,146;  /* rose */
+  --success-rgb:  124,192,154;
+  --warn-rgb:     232,145,74;
+  --error-rgb:    224,108,108;
+  --muted-rgb:    133,121,127;
+  --accent:       rgb(var(--accent-rgb));
+  --accent-glow:  rgba(var(--accent-rgb),0.2);
+  --accent-dark:  #b9853f;
+  --accent2:      rgb(var(--accent2-rgb));
+  --success:      rgb(var(--success-rgb));
+  --warn:         rgb(var(--warn-rgb));
+  --error:        rgb(var(--error-rgb));
+  --text:         #f1ebe4;
+  --text-muted:   #85797f;
+  --text-dim:     #b8aca3;
+  --serif:        'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --radius: 12px;
   --radius-sm: 8px;
 }
@@ -27,8 +38,8 @@ body {
   justify-content: center;
   padding: 20px;
   background-image:
-    radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 20%, rgba(99,102,241,0.06) 0%, transparent 50%);
+    radial-gradient(ellipse at 20% 50%, rgba(var(--accent-rgb),0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(var(--accent2-rgb),0.06) 0%, transparent 50%);
 }
 
 .setup-container {
@@ -47,19 +58,19 @@ body {
 .brand-icon {
   font-size: 3rem;
   margin-bottom: 8px;
-  filter: drop-shadow(0 0 20px rgba(59,130,246,0.6));
+  filter: drop-shadow(0 0 20px rgba(var(--accent-rgb),0.6));
   animation: pulse 3s ease-in-out infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { filter: drop-shadow(0 0 20px rgba(59,130,246,0.6)); }
-  50% { filter: drop-shadow(0 0 35px rgba(99,102,241,0.9)); }
+  0%, 100% { filter: drop-shadow(0 0 20px rgba(var(--accent-rgb),0.6)); }
+  50% { filter: drop-shadow(0 0 35px rgba(var(--accent2-rgb),0.9)); }
 }
 
 .brand h1 {
   font-size: 2rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #60a5fa, #818cf8);
+  background: linear-gradient(120deg, var(--text) 20%, var(--accent) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -153,20 +164,20 @@ select { cursor: pointer; }
 
 .btn-primary {
   width: 100%;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
   border: none;
   border-radius: var(--radius-sm);
-  color: #fff;
+  color: #1a1208;
   font-size: 1rem;
   font-weight: 600;
   padding: 12px;
   cursor: pointer;
   margin-top: 8px;
   transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
-  box-shadow: 0 4px 16px rgba(59,130,246,0.35);
+  box-shadow: 0 4px 16px rgba(var(--accent-rgb),0.35);
 }
 
-.btn-primary:hover { background: var(--accent-dark); box-shadow: 0 6px 20px rgba(59,130,246,0.5); }
+.btn-primary:hover { background: var(--accent-dark); box-shadow: 0 6px 20px rgba(var(--accent-rgb),0.5); }
 .btn-primary:active { transform: scale(0.98); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
@@ -178,9 +189,9 @@ select { cursor: pointer; }
   line-height: 1.4;
 }
 
-.status-msg.success { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: var(--success); }
-.status-msg.error   { background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.3);  color: var(--error); }
-.status-msg.info    { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); color: #60a5fa; }
+.status-msg.success { background: rgba(var(--success-rgb),0.1); border: 1px solid rgba(var(--success-rgb),0.3); color: var(--success); }
+.status-msg.error   { background: rgba(var(--error-rgb),0.1);  border: 1px solid rgba(var(--error-rgb),0.3);  color: var(--error); }
+.status-msg.info    { background: rgba(var(--accent-rgb),0.1); border: 1px solid rgba(var(--accent-rgb),0.3); color: #60a5fa; }
 
 .hidden { display: none !important; }
 
@@ -203,3 +214,6 @@ select { cursor: pointer; }
   color: var(--text-muted);
   font-size: 0.78rem;
 }
+
+.brand h1 { font-family: var(--serif); font-weight: 600; letter-spacing: 0.3px; }
+.brand-icon svg { width: 56px; height: 56px; }

@@ -7,8 +7,8 @@
 #   littlefs  :   ~9 MB  — Web UI assets, logs
 #   coredump  :   64 KB  — Crash diagnostics
 #
-# Select in Arduino IDE: Tools > Partition Scheme > Custom (use this file)
-# Or via platformio.ini: board_build.partitions = partitions_16MB_LittleFS.csv
+# The data partition keeps the name "spiffs" because LittleFS.begin() mounts that label by default.
+# Arduino IDE picks up partitions.csv from the sketch folder automatically.
 #
 # IMPORTANT: Changing partition scheme erases all flash partitions.
 # NVS data (calibrations, container levels) will be LOST on repartition.
@@ -18,5 +18,5 @@
 nvs,        data, nvs,      0x9000,   0x5000,
 otadata,    data, ota,      0xe000,   0x2000,
 app0,       app,  ota_0,    0x10000,  0x300000,
-littlefs,   data, spiffs,   0x310000,0x9D0000,
+spiffs,   data, spiffs,   0x310000,0x9D0000,
 coredump,   data, coredump, 0xCE0000, 0x10000,

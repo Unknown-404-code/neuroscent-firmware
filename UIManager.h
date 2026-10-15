@@ -123,6 +123,7 @@ private:
 
   // Helpers
   static void changeState(UIState newState);
+  static void endTest();
   static void scrollMenu(ButtonEvent event, uint8_t numItems,
                          uint8_t visibleItems = 5);
 };

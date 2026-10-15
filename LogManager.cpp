@@ -62,8 +62,20 @@ String LogManager::entryToJson(const LogEntry& entry) {
            severityName(entry.severity),
            entry.pumpIndex,
            entry.formulaId,
-           entry.description);
+           jsonEscape(entry.description).c_str());
   return String(buf);
+}
+
+String LogManager::jsonEscape(const String& s) {
+  String out;
+  out.reserve(s.length() + 8);
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == '"' || c == '\\') { out += '\\'; out += c; }
+    else if ((uint8_t)c < 0x20) out += ' ';
+    else out += c;
+  }
+  return out;
 }
 
 const char* LogManager::eventName(LogEvent e) {

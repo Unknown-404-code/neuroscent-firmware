@@ -219,6 +219,10 @@ void UIManager::handlePurgeMenu(ButtonEvent event) {
   scrollMenu(event, NUM_PUMPS_UI);
 
   if (event == ButtonEvent::SELECT) {
+    if (!OperationState::acquire(SystemOperation::OLED_PURGING)) {
+      triggerFormulaError("Busy (web op)");
+      return;
+    }
     selectedPump = menuSelectedIndex;
     PumpManager::startPump(selectedPump);
     changeState(UIState::PURGE_RUNNING);
@@ -230,6 +234,7 @@ void UIManager::handlePurgeMenu(ButtonEvent event) {
 void UIManager::handlePurgeRunning(ButtonEvent event) {
   if (event == ButtonEvent::BACK) {
     PumpManager::stopPump(selectedPump);
+    OperationState::release();
     changeState(UIState::PURGE_MENU);
   }
 }
@@ -238,6 +243,10 @@ void UIManager::handleCalibrationMenu(ButtonEvent event) {
   scrollMenu(event, NUM_PUMPS_UI);
 
   if (event == ButtonEvent::SELECT) {
+    if (!OperationState::acquire(SystemOperation::OLED_CALIBRATING)) {
+      triggerFormulaError("Busy (web op)");
+      return;
+    }
     selectedPump = menuSelectedIndex;
     calibrationStartTime = millis();
     PumpManager::startPump(selectedPump);
@@ -250,16 +259,15 @@ void UIManager::handleCalibrationMenu(ButtonEvent event) {
 void UIManager::handleCalibrationRunning(ButtonEvent event) {
   if (event == ButtonEvent::BACK) {
     PumpManager::stopPump(selectedPump);
+    OperationState::release();
 
+    // Target volume is set from the web UI (Settings > Calibration)
     unsigned long elapsed = millis() - calibrationStartTime;
     if (elapsed > 0) {
-      float ml_per_ms = 100.0f / (float)elapsed; // Hardcoded 100ml calibration
+      float ml_per_ms = (float)StorageManager::getCalibTargetMl() / (float)elapsed;
       StorageManager::setCalibration(selectedPump, ml_per_ms);
     }
 
-    // No confirmation needed according to instructions ("Show confirmation ->
-    // SELECT -> return"), but let's just show a simple notification if we
-    // wanted. For now just return to menu.
     changeState(UIState::CALIBRATION_MENU);
   }
 }
@@ -376,6 +384,10 @@ void UIManager::handleTestSelectPercent(ButtonEvent event) {
   scrollMenu(event, NUM_PERCENTS);
 
   if (event == ButtonEvent::SELECT) {
+    if (!OperationState::acquire(SystemOperation::OLED_TESTING)) {
+      triggerFormulaError("Busy (web op)");
+      return;
+    }
     testPercent = PERCENTS_VAL[menuSelectedIndex];
 
     // Calculate
@@ -393,17 +405,19 @@ void UIManager::handleTestSelectPercent(ButtonEvent event) {
   }
 }
 
+// Stops the test pump and deducts what actually ran (capped at the target).
+void UIManager::endTest() {
+  PumpManager::stopPump(selectedPump);
+  OperationState::release();
+  unsigned long ranMs = min(millis() - testStartTime, testDurationMs);
+  StorageManager::dispenseFromContainer(
+      selectedPump, ranMs * StorageManager::getCalibration(selectedPump));
+  changeState(UIState::MAIN_MENU);
+}
+
 void UIManager::handleTestRunning(ButtonEvent event) {
-  // Check if test completed naturally
-  if (PumpManager::isAnyPumpRunning() &&
-      (millis() - testStartTime >= testDurationMs)) {
-    PumpManager::stopPump(selectedPump);
-
-    // Deduct from container
-    float required_ml = (float)testContainerMl * ((float)testPercent / 100.0f);
-    StorageManager::dispenseFromContainer(selectedPump, required_ml);
-
-    changeState(UIState::MAIN_MENU); // Done
+  if (millis() - testStartTime >= testDurationMs) {
+    endTest();
     return;
   }
 
@@ -414,12 +428,17 @@ void UIManager::handleTestRunning(ButtonEvent event) {
 }
 
 void UIManager::handleTestStopConfirm(ButtonEvent event) {
+  // The timer keeps running while this prompt is open
+  if (millis() - testStartTime >= testDurationMs) {
+    endTest();
+    return;
+  }
+
   if (event == ButtonEvent::UP || event == ButtonEvent::DOWN) {
     menuSelectedIndex = (menuSelectedIndex == 0) ? 1 : 0;
   } else if (event == ButtonEvent::SELECT) {
     if (menuSelectedIndex == 0) { // Yes
-      PumpManager::stopPump(selectedPump);
-      changeState(UIState::MAIN_MENU);
+      endTest();
     } else { // No
       changeState(UIState::TEST_RUNNING);
     }
@@ -448,7 +467,9 @@ void UIManager::updateFormulaProgress(uint8_t currentPumpIndex, bool finished) {
   activeFormulaPumpIndex = currentPumpIndex;
   formulaDone = finished;
 
-  if (finished && currentState == UIState::FORMULA_RUNNING) {
+  // Also leave the stop prompt, or answering "No" would restart the formula
+  if (finished && (currentState == UIState::FORMULA_RUNNING ||
+                   currentState == UIState::FORMULA_STOP_CONFIRM)) {
     changeState(UIState::FORMULA_FINISHED);
   }
 }
@@ -616,11 +637,14 @@ void UIManager::renderCalibrationRunning() {
 
   char buf[32];
   sprintf(buf, "Pump %d ON", selectedPump + 1);
-  DisplayManager::drawCenteredText(buf, 20);
+  DisplayManager::drawCenteredText(buf, 14);
+
+  sprintf(buf, "Fill to %u ml", StorageManager::getCalibTargetMl());
+  DisplayManager::drawCenteredText(buf, 26);
 
   unsigned long elapsed = millis() - calibrationStartTime;
   sprintf(buf, "Time: %lu ms", elapsed);
-  DisplayManager::drawCenteredText(buf, 35);
+  DisplayManager::drawCenteredText(buf, 38);
 
   DisplayManager::drawCenteredText("Press BACK to save", 50);
   DisplayManager::display();
