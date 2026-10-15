@@ -249,7 +249,8 @@ bool WebServerManager::serveFromLittleFS(const String& path) {
     File f = LittleFS.open(gzPath, "r");
     if (f) {
       server.sendHeader("Content-Encoding", "gzip");
-      server.sendHeader("Cache-Control", "max-age=3600");
+      // no-cache: browsers re-check every load, so a new data/ upload shows up immediately
+      server.sendHeader("Cache-Control", "no-cache");
       server.streamFile(f, getMimeType(path));
       f.close();
       return true;
@@ -258,7 +259,7 @@ bool WebServerManager::serveFromLittleFS(const String& path) {
   if (LittleFS.exists(path)) {
     File f = LittleFS.open(path, "r");
     if (f) {
-      server.sendHeader("Cache-Control", "max-age=3600");
+      server.sendHeader("Cache-Control", "no-cache");
       server.streamFile(f, getMimeType(path));
       f.close();
       return true;
