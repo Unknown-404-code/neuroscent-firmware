@@ -16,7 +16,7 @@ An ESP32-based advanced perfume dispensing system that accurately mixes multiple
 The hardware configurations are strictly defined in `Config.h`. 
 
 **Pumps:**
-- Pump 1-8 Pins: `4, 5, 6, 7, 15, 16, 8, 3` (Digital HIGH = ON, LOW = OFF)
+- Pump 1-8 Pins: `1, 2, 42, 41, 40, 39, 38, 21` (Digital HIGH = ON, LOW = OFF)
 
 **Buttons:**
 - Up Pin: `10`

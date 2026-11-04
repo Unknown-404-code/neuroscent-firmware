@@ -36,7 +36,7 @@ enum class ButtonEvent { NONE, UP, DOWN, SELECT, BACK };
 // ==========================================
 
 // PUMPS (Digital ON/OFF - HIGH = ON, LOW = OFF)
-constexpr uint8_t PUMP_PINS[8] = {4, 5, 6, 7, 15, 16, 8, 3};
+constexpr uint8_t PUMP_PINS[8] = {1, 2, 42, 41, 40, 39, 38, 21};
 constexpr uint8_t NUM_PUMPS = 8;
 
 // BUTTONS (INPUT_PULLUP - Pressed = LOW)
