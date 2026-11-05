@@ -40,14 +40,14 @@ constexpr uint8_t PUMP_PINS[8] = {1, 2, 42, 41, 40, 39, 38, 21};
 constexpr uint8_t NUM_PUMPS = 8;
 
 // BUTTONS (INPUT_PULLUP - Pressed = LOW)
-constexpr uint8_t BTN_UP_PIN = 10;
-constexpr uint8_t BTN_DOWN_PIN = 11;
-constexpr uint8_t BTN_SELECT_PIN = 12;
-constexpr uint8_t BTN_BACK_PIN = 13;
+constexpr uint8_t BTN_UP_PIN = 47;
+constexpr uint8_t BTN_DOWN_PIN = 48;
+constexpr uint8_t BTN_SELECT_PIN = 45;
+constexpr uint8_t BTN_BACK_PIN = 0;
 
 // OLED DISPLAY (SSD1306 128x64 I2C)
-constexpr uint8_t OLED_SDA_PIN = 17;
-constexpr uint8_t OLED_SCL_PIN = 18;
+constexpr uint8_t OLED_SDA_PIN = 14;
+constexpr uint8_t OLED_SCL_PIN = 13;
 constexpr uint8_t OLED_I2C_ADDRESS = 0x3C;
 
 // ==========================================

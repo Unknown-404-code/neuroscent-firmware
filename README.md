@@ -19,17 +19,17 @@ The hardware configurations are strictly defined in `Config.h`.
 - Pump 1-8 Pins: `1, 2, 42, 41, 40, 39, 38, 21` (Digital HIGH = ON, LOW = OFF)
 
 **Buttons:**
-- Up Pin: `10`
-- Down Pin: `11`
-- Select Pin: `12`
-- Back Pin: `13`
+- Up Pin: `47`
+- Down Pin: `48`
+- Select Pin: `45`
+- Back Pin: `0`
 *(Configured as INPUT_PULLUP, Pressed = LOW)*
 
 **OLED Display:**
 - Type: SSD1306 (128x64)
 - I2C Address: `0x3C`
-- SDA Pin: `17`
-- SCL Pin: `18`
+- SDA Pin: `14`
+- SCL Pin: `13`
 
 ## Prerequisites
 
