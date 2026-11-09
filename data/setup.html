@@ -18,6 +18,7 @@
     <div class="card" id="setup-card">
       <h2>Connect to Your Network</h2>
       <p class="hint">Select your Wi-Fi network and enter the password to connect the NeuroScent device.</p>
+      <p class="hint">Using a phone hotspot? It must use 2.4 GHz. iPhone: keep the Personal Hotspot screen open and turn on Maximize Compatibility. Android: set the hotspot band to 2.4 GHz. Then tap ⟳.</p>
 
       <div class="field-group">
         <label for="ssid-select">Network (SSID)</label>
@@ -27,7 +28,7 @@
           </select>
           <button id="scan-btn" class="btn-icon" title="Scan networks" onclick="scanNetworks()">⟳</button>
         </div>
-        <label for="ssid-manual" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted)">Or enter manually (hidden network):</label>
+        <label for="ssid-manual" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted)">Not listed or hidden? Enter the name exactly:</label>
         <input type="text" id="ssid-manual" placeholder="Network name (SSID)" autocomplete="off" spellcheck="false"/>
       </div>
 
