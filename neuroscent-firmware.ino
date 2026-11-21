@@ -4,6 +4,7 @@
 #include "DisplayManager.h"
 #include "FormulaManager.h"
 #include "LogManager.h"
+#include "MachineHeartbeat.h"
 #include "OperationState.h"
 #include "PumpManager.h"
 #include "StorageManager.h"
@@ -39,10 +40,13 @@ void setup() {
   // 7. Initialize Wi-Fi Provisioning (non-blocking: starts AP or STA attempt)
   WiFiProvisioning::init();
 
-  // 8. Initialize Web Server (starts HTTP server; Wi-Fi managed separately)
+  // 8. Initialize cloud heartbeat (uses Wi-Fi and status modules; no pump control)
+  MachineHeartbeat::init();
+
+  // 9. Initialize Web Server (starts HTTP server; Wi-Fi managed separately)
   WebServerManager::init();
 
-  // 9. Initialize Application Logic
+  // 10. Initialize Application Logic
   FormulaManager::init();
   UIManager::init();  // Must be initialized after DisplayManager
 
@@ -72,6 +76,9 @@ void loop() {
   // 5. Network/Web Server (HTTP client handling + safety timeouts)
   WebServerManager::update();
 
-  // 6. Auth session cleanup (infrequent, lightweight)
+  // 6. Refresh the heartbeat snapshot and accept USB serial setup commands
+  MachineHeartbeat::update();
+
+  // 7. Auth session cleanup (infrequent, lightweight)
   AuthManager::update();
 }
