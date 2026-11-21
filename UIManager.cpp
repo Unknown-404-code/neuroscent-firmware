@@ -1,8 +1,10 @@
 #include "UIManager.h"
 #include "DisplayManager.h"
 #include "FormulaManager.h"
+#include "OperationState.h"
 #include "PumpManager.h"
 #include "StorageManager.h"
+#include "WiFiProvisioning.h"
 
 // --------------------------------------------------------
 // Static Variables Initialization
@@ -34,8 +36,9 @@ bool UIManager::formulaDone = false;
 // Menu Constants
 // --------------------------------------------------------
 const char *MAIN_MENU_ITEMS[] = {"Purging",      "Calibration", "View Calibs",
-                                 "Accords List", "Test",        "PWM"};
-const uint8_t MAIN_MENU_SIZE = 6;
+                                 "Accords List", "Test",        "PWM",
+                                 "Network & Web UI"};
+const uint8_t MAIN_MENU_SIZE = 7;
 
 const char *PUMPS_STR[] = {"Pump 1", "Pump 2", "Pump 3", "Pump 4",
                            "Pump 5", "Pump 6", "Pump 7", "Pump 8"};
@@ -120,6 +123,12 @@ void UIManager::update(ButtonEvent event) {
   case UIState::FORMULA_ERROR:
     handleFormulaError(event);
     break;
+  case UIState::NETWORK_PAGE:
+    handleNetworkPage(event);
+    break;
+  case UIState::NETWORK_SETUP_CONFIRM:
+    handleNetworkSetupConfirm(event);
+    break;
   }
 
   // Always render periodically, or at least every tick
@@ -199,6 +208,9 @@ void UIManager::handleMainMenu(ButtonEvent event) {
       tempPwmResolution = StorageManager::getPwmResolution();
       changeState(UIState::PWM_MENU);
       break;
+    case 6:
+      changeState(UIState::NETWORK_PAGE);
+      break;
     }
   }
 }
@@ -207,6 +219,10 @@ void UIManager::handlePurgeMenu(ButtonEvent event) {
   scrollMenu(event, NUM_PUMPS_UI);
 
   if (event == ButtonEvent::SELECT) {
+    if (!OperationState::acquire(SystemOperation::OLED_PURGING)) {
+      triggerFormulaError("Busy (web op)");
+      return;
+    }
     selectedPump = menuSelectedIndex;
     PumpManager::startPump(selectedPump);
     changeState(UIState::PURGE_RUNNING);
@@ -218,6 +234,7 @@ void UIManager::handlePurgeMenu(ButtonEvent event) {
 void UIManager::handlePurgeRunning(ButtonEvent event) {
   if (event == ButtonEvent::BACK) {
     PumpManager::stopPump(selectedPump);
+    OperationState::release();
     changeState(UIState::PURGE_MENU);
   }
 }
@@ -226,6 +243,10 @@ void UIManager::handleCalibrationMenu(ButtonEvent event) {
   scrollMenu(event, NUM_PUMPS_UI);
 
   if (event == ButtonEvent::SELECT) {
+    if (!OperationState::acquire(SystemOperation::OLED_CALIBRATING)) {
+      triggerFormulaError("Busy (web op)");
+      return;
+    }
     selectedPump = menuSelectedIndex;
     calibrationStartTime = millis();
     PumpManager::startPump(selectedPump);
@@ -238,16 +259,15 @@ void UIManager::handleCalibrationMenu(ButtonEvent event) {
 void UIManager::handleCalibrationRunning(ButtonEvent event) {
   if (event == ButtonEvent::BACK) {
     PumpManager::stopPump(selectedPump);
+    OperationState::release();
 
+    // Target volume is set from the web UI (Settings > Calibration)
     unsigned long elapsed = millis() - calibrationStartTime;
     if (elapsed > 0) {
-      float ml_per_ms = 100.0f / (float)elapsed; // Hardcoded 100ml calibration
+      float ml_per_ms = (float)StorageManager::getCalibTargetMl() / (float)elapsed;
       StorageManager::setCalibration(selectedPump, ml_per_ms);
     }
 
-    // No confirmation needed according to instructions ("Show confirmation ->
-    // SELECT -> return"), but let's just show a simple notification if we
-    // wanted. For now just return to menu.
     changeState(UIState::CALIBRATION_MENU);
   }
 }
@@ -364,6 +384,10 @@ void UIManager::handleTestSelectPercent(ButtonEvent event) {
   scrollMenu(event, NUM_PERCENTS);
 
   if (event == ButtonEvent::SELECT) {
+    if (!OperationState::acquire(SystemOperation::OLED_TESTING)) {
+      triggerFormulaError("Busy (web op)");
+      return;
+    }
     testPercent = PERCENTS_VAL[menuSelectedIndex];
 
     // Calculate
@@ -381,17 +405,19 @@ void UIManager::handleTestSelectPercent(ButtonEvent event) {
   }
 }
 
+// Stops the test pump and deducts what actually ran (capped at the target).
+void UIManager::endTest() {
+  PumpManager::stopPump(selectedPump);
+  OperationState::release();
+  unsigned long ranMs = min(millis() - testStartTime, testDurationMs);
+  StorageManager::dispenseFromContainer(
+      selectedPump, ranMs * StorageManager::getCalibration(selectedPump));
+  changeState(UIState::MAIN_MENU);
+}
+
 void UIManager::handleTestRunning(ButtonEvent event) {
-  // Check if test completed naturally
-  if (PumpManager::isAnyPumpRunning() &&
-      (millis() - testStartTime >= testDurationMs)) {
-    PumpManager::stopPump(selectedPump);
-
-    // Deduct from container
-    float required_ml = (float)testContainerMl * ((float)testPercent / 100.0f);
-    StorageManager::dispenseFromContainer(selectedPump, required_ml);
-
-    changeState(UIState::MAIN_MENU); // Done
+  if (millis() - testStartTime >= testDurationMs) {
+    endTest();
     return;
   }
 
@@ -402,12 +428,17 @@ void UIManager::handleTestRunning(ButtonEvent event) {
 }
 
 void UIManager::handleTestStopConfirm(ButtonEvent event) {
+  // The timer keeps running while this prompt is open
+  if (millis() - testStartTime >= testDurationMs) {
+    endTest();
+    return;
+  }
+
   if (event == ButtonEvent::UP || event == ButtonEvent::DOWN) {
     menuSelectedIndex = (menuSelectedIndex == 0) ? 1 : 0;
   } else if (event == ButtonEvent::SELECT) {
     if (menuSelectedIndex == 0) { // Yes
-      PumpManager::stopPump(selectedPump);
-      changeState(UIState::MAIN_MENU);
+      endTest();
     } else { // No
       changeState(UIState::TEST_RUNNING);
     }
@@ -436,7 +467,9 @@ void UIManager::updateFormulaProgress(uint8_t currentPumpIndex, bool finished) {
   activeFormulaPumpIndex = currentPumpIndex;
   formulaDone = finished;
 
-  if (finished && currentState == UIState::FORMULA_RUNNING) {
+  // Also leave the stop prompt, or answering "No" would restart the formula
+  if (finished && (currentState == UIState::FORMULA_RUNNING ||
+                   currentState == UIState::FORMULA_STOP_CONFIRM)) {
     changeState(UIState::FORMULA_FINISHED);
   }
 }
@@ -565,6 +598,12 @@ void UIManager::render() {
   case UIState::FORMULA_ERROR:
     renderFormulaError();
     break;
+  case UIState::NETWORK_PAGE:
+    renderNetworkPage();
+    break;
+  case UIState::NETWORK_SETUP_CONFIRM:
+    renderNetworkSetupConfirm();
+    break;
   }
 }
 
@@ -598,11 +637,14 @@ void UIManager::renderCalibrationRunning() {
 
   char buf[32];
   sprintf(buf, "Pump %d ON", selectedPump + 1);
-  DisplayManager::drawCenteredText(buf, 20);
+  DisplayManager::drawCenteredText(buf, 14);
+
+  sprintf(buf, "Fill to %u ml", StorageManager::getCalibTargetMl());
+  DisplayManager::drawCenteredText(buf, 26);
 
   unsigned long elapsed = millis() - calibrationStartTime;
   sprintf(buf, "Time: %lu ms", elapsed);
-  DisplayManager::drawCenteredText(buf, 35);
+  DisplayManager::drawCenteredText(buf, 38);
 
   DisplayManager::drawCenteredText("Press BACK to save", 50);
   DisplayManager::display();
@@ -842,5 +884,105 @@ void UIManager::renderFormulaError() {
   DisplayManager::drawCenteredText("ERROR!", 10);
   DisplayManager::drawCenteredText(formulaErrorMsg.c_str(), 30);
   DisplayManager::drawCenteredText("Press SELECT", 50);
+  DisplayManager::display();
+}
+
+// --------------------------------------------------------
+// Network & Web UI Page
+// --------------------------------------------------------
+
+void UIManager::handleNetworkPage(ButtonEvent event) {
+  if (event == ButtonEvent::BACK) {
+    changeState(UIState::MAIN_MENU);
+  } else if (event == ButtonEvent::SELECT) {
+    // Ask user to confirm launching setup AP
+    menuSelectedIndex = 0; // Default = Confirm
+    changeState(UIState::NETWORK_SETUP_CONFIRM);
+  }
+}
+
+void UIManager::handleNetworkSetupConfirm(ButtonEvent event) {
+  if (event == ButtonEvent::UP || event == ButtonEvent::DOWN) {
+    menuSelectedIndex = (menuSelectedIndex == 0) ? 1 : 0;
+  } else if (event == ButtonEvent::SELECT) {
+    if (menuSelectedIndex == 0) { // Confirm
+      if (!OperationState::isIdle()) {
+        // Cannot start setup while machine is busy
+        changeState(UIState::NETWORK_PAGE);
+        return;
+      }
+      WiFiProvisioning::startSetupAP();
+    }
+    changeState(UIState::NETWORK_PAGE);
+  } else if (event == ButtonEvent::BACK) {
+    changeState(UIState::NETWORK_PAGE);
+  }
+}
+
+void UIManager::renderNetworkPage() {
+  DisplayManager::clear();
+  DisplayManager::drawHeader(" NETWORK & WEB UI");
+
+  WiFiState wfState = WiFiProvisioning::getState();
+  char line1[22], line2[22], line3[22], line4[22];
+
+  if (wfState == WiFiState::STA_CONNECTED) {
+    snprintf(line1, sizeof(line1), "Wi-Fi: Connected");
+    String ip = WiFiProvisioning::getLocalIP();
+    snprintf(line2, sizeof(line2), "%-20s", "neuroscent.local");
+    snprintf(line3, sizeof(line3), "IP:%.17s", ip.c_str());
+    snprintf(line4, sizeof(line4), "SELECT: Setup Mode");
+
+    DisplayManager::getDisplay().setCursor(0, 12);
+    DisplayManager::getDisplay().print(line1);
+    DisplayManager::getDisplay().setCursor(0, 24);
+    DisplayManager::getDisplay().print(line2);
+    DisplayManager::getDisplay().setCursor(0, 36);
+    DisplayManager::getDisplay().print(line3);
+    DisplayManager::getDisplay().setCursor(0, 52);
+    DisplayManager::getDisplay().print("BACK:Main  SEL:Setup");
+  } else if (wfState == WiFiState::AP_ACTIVE) {
+    DisplayManager::drawCenteredText("Wi-Fi Setup Mode", 12);
+    snprintf(line1, sizeof(line1), "SSID: %.14s", WIFI_AP_SSID);
+    DisplayManager::getDisplay().setCursor(0, 24);
+    DisplayManager::getDisplay().print(line1);
+    DisplayManager::getDisplay().setCursor(0, 36);
+    DisplayManager::getDisplay().print("192.168.4.1");
+    DisplayManager::getDisplay().setCursor(0, 52);
+    DisplayManager::getDisplay().print("BACK: Main Menu");
+  } else if (wfState == WiFiState::CONNECTING ||
+             wfState == WiFiState::RECONNECTING) {
+    DisplayManager::drawCenteredText("Connecting...", 20);
+    DisplayManager::drawCenteredText(WiFiProvisioning::getSSID().c_str(), 35);
+    DisplayManager::getDisplay().setCursor(0, 52);
+    DisplayManager::getDisplay().print("BACK: Main Menu");
+  } else {
+    DisplayManager::drawCenteredText("Disconnected", 20);
+    DisplayManager::drawCenteredText("SELECT: Start Setup", 35);
+    DisplayManager::getDisplay().setCursor(0, 52);
+    DisplayManager::getDisplay().print("BACK: Main Menu");
+  }
+
+  DisplayManager::display();
+}
+
+void UIManager::renderNetworkSetupConfirm() {
+  DisplayManager::clear();
+
+  if (!OperationState::isIdle()) {
+    DisplayManager::drawCenteredText("Cannot start setup", 15);
+    DisplayManager::drawCenteredText("Machine is busy!", 30);
+    DisplayManager::drawCenteredText("BACK: Cancel", 50);
+  } else {
+    DisplayManager::drawCenteredText("Start Wi-Fi Setup?", 10);
+    DisplayManager::drawCenteredText("Saves current network", 22);
+
+    DisplayManager::getDisplay().setCursor(30, 38);
+    DisplayManager::getDisplay().print(menuSelectedIndex == 0 ? "> Confirm"
+                                                              : "  Confirm");
+    DisplayManager::getDisplay().setCursor(30, 50);
+    DisplayManager::getDisplay().print(menuSelectedIndex == 1 ? "> Cancel"
+                                                              : "  Cancel");
+  }
   DisplayManager::display();
 }

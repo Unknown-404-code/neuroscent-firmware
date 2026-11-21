@@ -6,7 +6,7 @@
 
 int FormulaManager::formulaId = 0;
 String FormulaManager::formulaName = "";
-uint8_t FormulaManager::containerMl = 0;
+uint16_t FormulaManager::containerMl = 0;
 
 FormulaStep FormulaManager::steps[MAX_FORMULA_STEPS];
 uint8_t FormulaManager::numSteps = 0;
@@ -53,7 +53,9 @@ bool FormulaManager::parseAndPrepare(const String &jsonStr) {
       continue;
 
     uint8_t pIdx = pumpIdRaw - 1;
-    uint8_t pct = step["percent"];
+    float pct = step["percent"];  // web UI sends decimals like 33.3
+    if (pct <= 0.0f || pct > 100.0f)
+      continue;
 
     float reqMl = (float)containerMl * ((float)pct / 100.0f);
     float mlPerMs = StorageManager::getCalibration(pIdx);
@@ -136,6 +138,11 @@ void FormulaManager::abortFormula(const String &errMsg) {
   if (isExecuting) {
     PumpManager::stopAll();
     isExecuting = false;
+    // Deduct what the interrupted step actually pumped
+    unsigned long ranMs = min(millis() - stepStartTime, steps[currentStep].requiredMs);
+    StorageManager::dispenseFromContainer(
+        steps[currentStep].pumpIndex,
+        ranMs * StorageManager::getCalibration(steps[currentStep].pumpIndex));
   }
 }
 

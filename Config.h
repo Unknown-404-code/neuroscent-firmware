@@ -9,6 +9,24 @@
 enum class AppState { IDLE, BUSY };
 
 // ==========================================
+// SYSTEM OPERATION STATE
+// (Shared between OLED and Web UI to prevent conflicts)
+// ==========================================
+enum class SystemOperation {
+  IDLE,              // No hardware operation active
+  OLED_PURGING,      // Purge initiated from OLED
+  OLED_CALIBRATING,  // Calibration initiated from OLED
+  OLED_TESTING,      // Manual test initiated from OLED
+  WEB_PURGING,       // Purge initiated from web UI
+  WEB_CALIBRATING,   // Calibration initiated from web UI
+  FORMULA_PENDING,   // Formula received, awaiting OLED confirmation
+  FORMULA_DISPENSING // Formula confirmed, currently dispensing
+};
+
+// Firmware version
+#define FIRMWARE_VERSION "2.0.0-web-ui"
+
+// ==========================================
 // BUTTON EVENTS
 // ==========================================
 enum class ButtonEvent { NONE, UP, DOWN, SELECT, BACK };
@@ -18,18 +36,18 @@ enum class ButtonEvent { NONE, UP, DOWN, SELECT, BACK };
 // ==========================================
 
 // PUMPS (Digital ON/OFF - HIGH = ON, LOW = OFF)
-constexpr uint8_t PUMP_PINS[8] = {4, 5, 6, 7, 15, 16, 8, 3};
+constexpr uint8_t PUMP_PINS[8] = {1, 2, 42, 41, 40, 39, 38, 21};
 constexpr uint8_t NUM_PUMPS = 8;
 
 // BUTTONS (INPUT_PULLUP - Pressed = LOW)
-constexpr uint8_t BTN_UP_PIN = 10;
-constexpr uint8_t BTN_DOWN_PIN = 11;
-constexpr uint8_t BTN_SELECT_PIN = 12;
-constexpr uint8_t BTN_BACK_PIN = 13;
+constexpr uint8_t BTN_UP_PIN = 47;
+constexpr uint8_t BTN_DOWN_PIN = 48;
+constexpr uint8_t BTN_SELECT_PIN = 45;
+constexpr uint8_t BTN_BACK_PIN = 0;
 
 // OLED DISPLAY (SSD1306 128x64 I2C)
-constexpr uint8_t OLED_SDA_PIN = 17;
-constexpr uint8_t OLED_SCL_PIN = 18;
+constexpr uint8_t OLED_SDA_PIN = 14;
+constexpr uint8_t OLED_SCL_PIN = 13;
 constexpr uint8_t OLED_I2C_ADDRESS = 0x3C;
 
 // ==========================================
